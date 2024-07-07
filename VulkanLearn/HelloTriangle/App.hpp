@@ -26,7 +26,7 @@ namespace HelloTriangle
 		void CreateInstance();
 
 	private:
-		GLFWwindow* _window;
-		VkInstance _instance;
+		GLFWwindow* _window = nullptr;
+		VkInstance _instance = VK_NULL_HANDLE;
 	};
 }

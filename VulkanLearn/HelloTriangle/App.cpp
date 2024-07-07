@@ -2,10 +2,11 @@
 
 #include "App.hpp"
 
+static void checkRequiredExtensions(const std::vector<const char*>& requiredExtension, uint32_t glfwExtensionsCount, const char** glfwExtensions);
+
 namespace HelloTriangle
 {
-	App::App() :
-		_window(nullptr)
+	App::App()
 	{
 	}
 
@@ -79,6 +80,10 @@ namespace HelloTriangle
 		uint32_t glfwExtensionCount = 0;
 		const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
+		std::vector<const char*> requiredExtensions = {};
+
+		checkRequiredExtensions(requiredExtensions, glfwExtensionCount, glfwExtensions);
+
 		VkInstanceCreateInfo createInfo = 
 		{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -99,3 +104,70 @@ namespace HelloTriangle
 	}
 }
 
+void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension, uint32_t glfwExtensionsCount, const char** glfwExtensions)
+{
+	uint32_t extensionCount = 0;
+	VkResult result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+	if (result != VK_SUCCESS || extensionCount == 0)
+	{
+		throw std::exception("vkEnumerateInstanceExtensionProperties failed first call");
+	}
+
+	std::vector<VkExtensionProperties> extensions(extensionCount);
+	result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+	if (result != VK_SUCCESS)
+	{
+		throw std::exception("vkEnumerateInstanceExtensionProperties failed second call");
+	}
+
+	spdlog::info("AVAILABLE EXTENSION");
+	for (uint32_t i = 0; i < extensionCount; i++)
+	{
+		spdlog::info("\t- {0}", extensions[i].extensionName);
+	}
+
+	spdlog::info("REQUIRED GLFW EXTENSIONS");
+	for (uint32_t i = 0; i < glfwExtensionsCount; i++)
+	{
+		spdlog::info("\t- {0}", glfwExtensions[i]);
+
+		bool hasGlfwExtensions = false;
+		for (uint32_t j = 0; j < extensionCount; j++)
+		{
+			VkExtensionProperties& current = extensions[j];
+			if (strcmp(current.extensionName, glfwExtensions[i]) == 0)
+			{
+				hasGlfwExtensions = true;
+				break;
+			}
+		}
+
+		if (!hasGlfwExtensions)
+		{
+			throw std::exception("Vulkan does not have required glfw extensions");
+		}
+	}
+
+	spdlog::info("REQUIRED EXTENSIONS");
+	
+	for (uint32_t i = 0; i < requiredExtension.size(); i++)
+	{
+		spdlog::info("\t- {0}", requiredExtension[i]);
+
+		bool hasExtensions = false;
+		for (uint32_t j = 0; j < extensionCount; j++)
+		{
+			VkExtensionProperties& current = extensions[j];
+			if (strcmp(current.extensionName, requiredExtension[i]) == 0)
+			{
+				hasExtensions = true;
+				break;
+			}
+		}
+
+		if (!hasExtensions)
+		{
+			throw std::exception("Vulkan does not have required extensions");
+		}
+	}
+}
