@@ -38,6 +38,10 @@ namespace HelloTriangle
 		void CreateLogicalDevice();
 		void CreateSurface();
 		void CreateSwapChain();
+		void CreateImageViews();
+		void CreateGraphicsPipeline();
+
+		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 
 	private:
 		GLFWwindow* _window = nullptr;
@@ -51,6 +55,9 @@ namespace HelloTriangle
 		VkQueue _presentQueue = VK_NULL_HANDLE;
 
 		VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-
+		VkFormat _swapChainImageFormat = VK_FORMAT_UNDEFINED;
+		VkExtent2D _swapChainExtent = {};
+		std::vector<VkImage> _swapChainImages;
+		std::vector<VkImageView> _swapChainImageViews;
 	};
 }

@@ -1,5 +1,7 @@
 #include "App.hpp"
+
 #include <set>
+#include <fstream>
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback( 
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -83,6 +85,9 @@ namespace HelloTriangle
 	static VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
 	static VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
 
+	static std::vector<char> readFile(const std::string& filename);
+	
+
 	App::App()
 	{
 	}
@@ -126,6 +131,10 @@ namespace HelloTriangle
 	{
 		spdlog::info("Limpiando");
 
+		for (auto imageView : _swapChainImageViews) {
+			vkDestroyImageView(_logicalDevice, imageView, nullptr);
+		}
+
 		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
 
 		vkDestroyDevice(_logicalDevice, nullptr);
@@ -150,6 +159,8 @@ namespace HelloTriangle
 		PickPhysicalDevice();
 		CreateLogicalDevice();
 		CreateSwapChain();
+		CreateImageViews();
+		CreateGraphicsPipeline();
 	}
 
 	void App::CreateInstance()
@@ -420,7 +431,118 @@ namespace HelloTriangle
 			throw std::exception("No fue posible crear el SwapChain");
 		}
 
+		result = vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, nullptr);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible obtener imagenes en la primera llamada");
+		}
+
+		_swapChainImages.resize(imageCount);
+		result = vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, _swapChainImages.data());
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible obtener imagenes en la segunda llamada");
+		}
+
+		_swapChainImageFormat = surfaceFormat.format;
+		_swapChainExtent = extent;
+
 		spdlog::info("Inicializacion del SwapChain exitosa");
+	}
+
+	void App::CreateImageViews()
+	{
+		spdlog::info("Inicializando Vistas a imagen");
+
+		_swapChainImageViews.resize(_swapChainImages.size());
+
+		for (size_t i = 0; i < _swapChainImages.size(); i++) 
+		{
+			VkImageViewCreateInfo createInfo = 
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = _swapChainImages[i],
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = _swapChainImageFormat,
+				.components = 
+				{
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+				},
+				.subresourceRange = 
+				{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				}
+			};
+
+			VkResult result = vkCreateImageView(_logicalDevice, &createInfo, nullptr, &_swapChainImageViews[i]);
+			if (result != VK_SUCCESS)
+			{
+				throw std::exception("No fue posible crear las vista a la imagen");
+			}
+		}
+
+		spdlog::info("Inicializacion de Vistas a imagen exitosa");
+	}
+
+	void App::CreateGraphicsPipeline()
+	{ 
+		auto vertShaderCode = readFile("HelloTriangle/assets/shaders/shader.vert.spv");
+		auto fragShaderCode = readFile("HelloTriangle/assets/shaders/shader.frag.spv");
+
+		VkShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
+		VkShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
+
+		VkPipelineShaderStageCreateInfo vertexShaderStageInfo = 
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_VERTEX_BIT,
+			.module = vertexShaderModule,
+			.pName = "main"
+		};
+
+		VkPipelineShaderStageCreateInfo fragmentShaderStageInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.module = fragmentShaderModule,
+			.pName = "main"
+		};
+
+		VkPipelineShaderStageCreateInfo shaderStages[] = { vertexShaderStageInfo, fragmentShaderStageInfo };
+
+
+		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
+		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
+	}
+
+	VkShaderModule App::CreateShaderModule(const std::vector<char>& code)
+	{
+		spdlog::info("Inicializando Modulo shader");
+
+		VkShaderModuleCreateInfo createInfo = 
+		{
+			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			.codeSize = code.size(),
+			.pCode = reinterpret_cast<const uint32_t*>(code.data()),
+		};
+
+		VkShaderModule shaderModule = VK_NULL_HANDLE;
+		VkResult result = vkCreateShaderModule(_logicalDevice, &createInfo, nullptr, &shaderModule);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear los modulos de Shader");
+		}
+
+		spdlog::info("Inicializado Modulo shader correctamente");
+
+		return shaderModule;
 	}
 
 	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
@@ -685,6 +807,26 @@ namespace HelloTriangle
 
 			return actualExtent;
 		}
+	}
+
+	std::vector<char> readFile(const std::string& filename)
+	{
+		std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+		if (!file.is_open()) {
+			spdlog::error("No se pudo abrir el archivo {0}", filename);
+			throw std::exception("No se pudo abrir el archivo");
+		}
+
+		size_t fileSize = (size_t)file.tellg();
+		std::vector<char> buffer(fileSize);
+
+		file.seekg(0);
+		file.read(buffer.data(), fileSize);
+
+		file.close();
+
+		return buffer;
 	}
 }
 

@@ -36,3 +36,6 @@
 #Build
 /bin
 /bin-int
+
+#Shader Binaries
+*.spv

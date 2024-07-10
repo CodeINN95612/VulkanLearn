@@ -27,4 +27,8 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="HelloTriangle\assets\shaders\shader.vert" />
+    <None Include="HelloTriangle\assets\shaders\shader.frag" />
+  </ItemGroup>
 </Project>
