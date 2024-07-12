@@ -39,7 +39,11 @@ namespace HelloTriangle
 		void CreateSurface();
 		void CreateSwapChain();
 		void CreateImageViews();
+		void CreateRenderPass();
 		void CreateGraphicsPipeline();
+		void CreateFramebuffers();
+		void CreateCommandPool();
+		void CreateCommandBuffers();
 
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 
@@ -59,5 +63,16 @@ namespace HelloTriangle
 		VkExtent2D _swapChainExtent = {};
 		std::vector<VkImage> _swapChainImages;
 		std::vector<VkImageView> _swapChainImageViews;
+
+		VkRenderPass _renderPass = VK_NULL_HANDLE;
+		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
+		VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
+
+		std::vector<VkFramebuffer> _framebuffers;
+
+		VkCommandPool _commandPool = VK_NULL_HANDLE;
+		std::vector<VkCommandBuffer> _commandBuffers;
+
+
 	};
 }
