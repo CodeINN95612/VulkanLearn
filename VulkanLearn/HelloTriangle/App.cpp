@@ -2,6 +2,42 @@
 
 #include <set>
 #include <fstream>
+#include <algorithm>
+
+#include <glm/glm.hpp>
+
+struct Vertex 
+{
+	glm::vec2 pos; 
+	glm::vec3 color;
+
+	static VkVertexInputBindingDescription GetBindingDescription() {
+		VkVertexInputBindingDescription bindingDescription
+		{
+			.binding = 0,
+			.stride = sizeof(Vertex),
+			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+		};
+
+		return bindingDescription;
+	}
+
+	static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		return attributeDescriptions;
+	}
+};
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback( 
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -75,6 +111,19 @@ namespace HelloTriangle
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
 	};
 
+	const std::vector<Vertex> vertices = 
+	{
+		{{-0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}},
+		{{ 0.5f, -0.5f}, {0.2f, 0.0f, 0.0f}},
+		{{ 0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{-0.5f,  0.5f}, {0.2f, 0.0f, 0.0f}}
+	};
+
+	const std::vector<uint16_t> indices = 
+	{
+		0, 1, 2, 2, 3, 0
+	};
+
 	static void checkRequiredExtensions(const std::vector<const char*>& requiredExtensions);
 	static void checkRequiredLayers(const std::vector<const char*>& requiredLayers);
 	static bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
@@ -84,6 +133,7 @@ namespace HelloTriangle
 	static VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
 	static VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
 	static VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
+	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice);
 
 	static std::vector<char> readFile(const std::string& filename);
 	
@@ -119,7 +169,8 @@ namespace HelloTriangle
 				spdlog::info("Cambio de tamaño de ventana: {0}, {1}", width, height);
 				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
 				app->SetResized(true);
-			});
+			}
+		);
 
 		if (!_window) {
 			throw std::exception("Error al crear la ventana");
@@ -130,9 +181,29 @@ namespace HelloTriangle
 
 	void App::Loop()
 	{
+		double currentTime = glfwGetTime();
+		double lastTime = currentTime;
+		int numFrames = 0;
+		float frameTime;
+
 		while (!glfwWindowShouldClose(_window)) {
 			glfwPollEvents();
 			DrawFrame();
+
+			currentTime = glfwGetTime();
+			double delta = currentTime - lastTime;
+
+			if (delta >= 1) {
+				int framerate = std::max(1, int(numFrames / delta));
+				std::stringstream title;
+				title << "Render Thread running at " << framerate << " fps.";
+				glfwSetWindowTitle(_window, title.str().c_str());
+				lastTime = currentTime;
+				numFrames = -1;
+				frameTime = float(1000.0 / framerate);
+			}
+
+			++numFrames;
 		}
 
 		VkResult result = vkDeviceWaitIdle(_logicalDevice);
@@ -151,6 +222,12 @@ namespace HelloTriangle
 			vkDestroySemaphore(_logicalDevice, _imageAvailableSemaphores[i], nullptr);
 			vkDestroyFence(_logicalDevice, _inFlightFences[i], nullptr);
 		}
+
+		vkDestroyBuffer(_logicalDevice, _indexBuffer, nullptr);
+		vkFreeMemory(_logicalDevice, _indexBufferMemory, nullptr);
+
+		vkDestroyBuffer(_logicalDevice, _vertexBuffer, nullptr);
+		vkFreeMemory(_logicalDevice, _vertexBufferMemory, nullptr);
 
 		vkDestroyCommandPool(_logicalDevice, _commandPool, nullptr);
 
@@ -189,6 +266,8 @@ namespace HelloTriangle
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
 		CreateCommandPool();
+		CreateVertexBuffer();
+		CreateIndexBuffer();
 		CreateCommandBuffers();
 		CreateSyncObjects();
 	}
@@ -621,13 +700,16 @@ namespace HelloTriangle
 			.pDynamicStates = dynamicStates.data(),
 		};
 
+		auto bindingDescription = Vertex::GetBindingDescription();
+		auto attributeDescriptions = Vertex::GetAttributeDescriptions();
+
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo = 
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-			.vertexBindingDescriptionCount = 0,
-			.pVertexBindingDescriptions = nullptr,
-			.vertexAttributeDescriptionCount = 0,
-			.pVertexAttributeDescriptions = nullptr,
+			.vertexBindingDescriptionCount = 1,
+			.pVertexBindingDescriptions = &bindingDescription,
+			.vertexAttributeDescriptionCount = (uint32_t)attributeDescriptions.size(),
+			.pVertexAttributeDescriptions = attributeDescriptions.data(),
 		};
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = 
@@ -911,6 +993,88 @@ namespace HelloTriangle
 		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
 	}
 
+	void App::CreateVertexBuffer()
+	{
+		spdlog::info("Inicializando Buffer de Vertices");
+
+		size_t size = sizeof(vertices[0]) * vertices.size();
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		CreateBuffer(
+			size, 
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+			stagingBuffer, 
+			stagingBufferMemory);
+
+		void* data;
+		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible mapear la memoria del Buffer de Vertices");
+		}
+
+		memcpy(data, vertices.data(), size);
+
+		vkUnmapMemory(_logicalDevice, stagingBufferMemory);
+
+		CreateBuffer(
+			size,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			_vertexBuffer, 
+			_vertexBufferMemory);
+
+		CopyBuffer(stagingBuffer, _vertexBuffer, size);
+
+		vkDestroyBuffer(_logicalDevice, stagingBuffer, nullptr);
+		vkFreeMemory(_logicalDevice, stagingBufferMemory, nullptr);
+
+		spdlog::info("Inicializacion de Buffer de Vertices exitosa");
+	}
+
+	void App::CreateIndexBuffer()
+	{
+		spdlog::info("Inicializando Buffer de Indices");
+
+		size_t size = sizeof(indices[0]) * indices.size();
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		CreateBuffer(
+			size, 
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+			stagingBuffer, 
+			stagingBufferMemory);
+
+		void* data;
+		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible mapear la memoria del Buffer de Indices");
+		}
+
+		memcpy(data, indices.data(), size);
+
+		vkUnmapMemory(_logicalDevice, stagingBufferMemory);
+
+		CreateBuffer(
+			size, 
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
+			_indexBuffer, 
+			_indexBufferMemory);
+
+		CopyBuffer(stagingBuffer, _indexBuffer, size);
+
+		vkDestroyBuffer(_logicalDevice, stagingBuffer, nullptr);
+		vkFreeMemory(_logicalDevice, stagingBufferMemory, nullptr);
+
+		spdlog::info("Inicializacion de Buffer de Indices exitosa");
+	}
+
 	void App::DrawFrame()
 	{
 		VkResult result = vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
@@ -1058,7 +1222,13 @@ namespace HelloTriangle
 		};
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		VkBuffer vertexBuffers[] = { _vertexBuffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+		vkCmdDrawIndexed(commandBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -1067,6 +1237,115 @@ namespace HelloTriangle
 		{
 			throw std::exception("No fue posible finalizar el grabado de comandos");
 		}
+	}
+
+	void App::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+	{
+		spdlog::info("Inicializando Buffer de tamaño: {0}", size);
+
+		VkBufferCreateInfo bufferInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = size,
+			.usage = usage,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+
+		VkResult result = vkCreateBuffer(_logicalDevice, &bufferInfo, nullptr, &buffer);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear el Buffer");
+		}
+
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(_logicalDevice, buffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties, _physicalDevice)
+		};
+
+		result = vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &bufferMemory);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible asignar memoria al Buffer");
+		}
+
+		result = vkBindBufferMemory(_logicalDevice, buffer, bufferMemory, 0);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible asignar memoria al Buffer con la memoria de vertices");
+		}
+		spdlog::info("Inicializacion de Buffer exitosa");
+	}
+
+	void App::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+	{
+		VkCommandBufferAllocateInfo allocInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = _commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+
+		VkCommandBuffer commandBuffer;
+		VkResult result = vkAllocateCommandBuffers(_logicalDevice, &allocInfo, &commandBuffer);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue generar el command buffer para copiar memoria");
+		}
+
+		VkCommandBufferBeginInfo beginInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+		};
+
+		result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible empezar el grabado de comandos de copia de memoria");
+		}
+
+		VkBufferCopy copyRegion
+		{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = size,
+		};
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+		result = vkEndCommandBuffer(commandBuffer);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible finalizar el grabado de comandos de copia de memoria");
+		}
+
+		VkSubmitInfo submitInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &commandBuffer,
+		};
+
+		result = vkQueueSubmit(_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible subir comandos de copia de memoria a la cola de graficos");
+		}
+
+		result = vkQueueWaitIdle(_graphicsQueue);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible esperar a que la cola de graficos termine de copiar memoria");
+		}
+
+		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
+
+
 	}
 
 	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
@@ -1331,6 +1610,20 @@ namespace HelloTriangle
 
 			return actualExtent;
 		}
+	}
+
+	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice)
+	{
+		VkPhysicalDeviceMemoryProperties memProperties;
+		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+				return i;
+			}
+		}
+
+		throw std::exception("No se encontro un tipo de memoria adecuado");
 	}
 
 	std::vector<char> readFile(const std::string& filename)

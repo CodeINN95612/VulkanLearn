@@ -49,11 +49,16 @@ namespace HelloTriangle
 		void CreateSyncObjects();
 		void RecreateSwapChain();
 		void CleanUpSwapChain();
+
+		void CreateVertexBuffer();
+		void CreateIndexBuffer();
 		
 		void DrawFrame();
 
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+		void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 	private:
 		GLFWwindow* _window = nullptr;
@@ -84,6 +89,11 @@ namespace HelloTriangle
 		std::vector<VkSemaphore> _imageAvailableSemaphores;
 		std::vector<VkSemaphore> _renderFinishedSemaphores;
 		std::vector<VkFence> _inFlightFences;
+
+		VkBuffer _vertexBuffer = VK_NULL_HANDLE;
+		VkDeviceMemory  _vertexBufferMemory = VK_NULL_HANDLE;
+		VkBuffer _indexBuffer = VK_NULL_HANDLE;
+		VkDeviceMemory _indexBufferMemory = VK_NULL_HANDLE;
 
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
