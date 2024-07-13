@@ -22,8 +22,10 @@ namespace HelloTriangle
 	public:
 		static const uint32_t WIDTH = 800;
 		static const uint32_t HEIGHT = 600;
+		static const size_t MAX_FRAMES_IN_FLIGHT = 2;
 
 	public:
+		inline void SetResized(bool resized) { _framebufferResized = resized; }
 
 	private:
 		void InitWindow();
@@ -44,8 +46,14 @@ namespace HelloTriangle
 		void CreateFramebuffers();
 		void CreateCommandPool();
 		void CreateCommandBuffers();
+		void CreateSyncObjects();
+		void RecreateSwapChain();
+		void CleanUpSwapChain();
+		
+		void DrawFrame();
 
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
+		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
 	private:
 		GLFWwindow* _window = nullptr;
@@ -73,6 +81,11 @@ namespace HelloTriangle
 		VkCommandPool _commandPool = VK_NULL_HANDLE;
 		std::vector<VkCommandBuffer> _commandBuffers;
 
+		std::vector<VkSemaphore> _imageAvailableSemaphores;
+		std::vector<VkSemaphore> _renderFinishedSemaphores;
+		std::vector<VkFence> _inFlightFences;
 
+		size_t _currentFrame = 0;
+		bool _framebufferResized = false;
 	};
 }

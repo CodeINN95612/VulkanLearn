@@ -14,7 +14,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	{
 		case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT: 
 			type = "GENERAL";
-			return VK_FALSE;
+			//return VK_FALSE;
 			break;
 		case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
 			type = "VALIDACION";
@@ -110,8 +110,16 @@ namespace HelloTriangle
 		}
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 		_window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Triangle", nullptr, nullptr);
+		glfwSetWindowUserPointer(_window, this);
+
+		glfwSetFramebufferSizeCallback(_window, [](GLFWwindow* window, int width, int height)
+			{
+				spdlog::info("Cambio de tamaño de ventana: {0}, {1}", width, height);
+				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+				app->SetResized(true);
+			});
 
 		if (!_window) {
 			throw std::exception("Error al crear la ventana");
@@ -124,6 +132,13 @@ namespace HelloTriangle
 	{
 		while (!glfwWindowShouldClose(_window)) {
 			glfwPollEvents();
+			DrawFrame();
+		}
+
+		VkResult result = vkDeviceWaitIdle(_logicalDevice);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("Error al esperar para el dispositivo al finalizar");
 		}
 	}
 
@@ -131,11 +146,13 @@ namespace HelloTriangle
 	{
 		spdlog::info("Limpiando");
 
-		vkDestroyCommandPool(_logicalDevice, _commandPool, nullptr);
-
-		for (auto framebuffer : _framebuffers) {
-			vkDestroyFramebuffer(_logicalDevice, framebuffer, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroySemaphore(_logicalDevice, _renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(_logicalDevice, _imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(_logicalDevice, _inFlightFences[i], nullptr);
 		}
+
+		vkDestroyCommandPool(_logicalDevice, _commandPool, nullptr);
 
 		vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
 
@@ -143,11 +160,7 @@ namespace HelloTriangle
 
 		vkDestroyRenderPass(_logicalDevice, _renderPass, nullptr);
 
-		for (auto imageView : _swapChainImageViews) {
-			vkDestroyImageView(_logicalDevice, imageView, nullptr);
-		}
-
-		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
+		CleanUpSwapChain();
 
 		vkDestroyDevice(_logicalDevice, nullptr);
 
@@ -175,6 +188,9 @@ namespace HelloTriangle
 		CreateRenderPass();
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
+		CreateCommandPool();
+		CreateCommandBuffers();
+		CreateSyncObjects();
 	}
 
 	void App::CreateInstance()
@@ -534,6 +550,16 @@ namespace HelloTriangle
 			.pColorAttachments = &colorAttachmentRef,
 		};
 
+		VkSubpassDependency dependency
+		{
+			.srcSubpass = VK_SUBPASS_EXTERNAL,
+			.dstSubpass = 0,
+			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		};
+
 		VkRenderPassCreateInfo renderPassInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
@@ -541,6 +567,8 @@ namespace HelloTriangle
 			.pAttachments = &colorAttachment,
 			.subpassCount = 1,
 			.pSubpasses = &subpass,
+			.dependencyCount = 1,
+			.pDependencies = &dependency,
 		};
 
 		VkResult result = vkCreateRenderPass(_logicalDevice, &renderPassInfo, nullptr, &_renderPass);
@@ -789,6 +817,169 @@ namespace HelloTriangle
 
 	void App::CreateCommandBuffers()
 	{
+		spdlog::info("Inicializando Command Buffer");
+
+		_commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		VkCommandBufferAllocateInfo allocInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = _commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = (uint32_t)_commandBuffers.size(),
+		};
+
+		VkResult result = vkAllocateCommandBuffers(_logicalDevice, &allocInfo, _commandBuffers.data());
+		if (result != VK_SUCCESS) {
+			throw std::exception("No fue posible crear el Command Buffer");
+		}
+
+		spdlog::info("Inicializacion de Command Buffer exitosa");
+	}
+
+	void App::CreateSyncObjects()
+	{
+		spdlog::info("Inicializando Objetos de syncronizacion");
+
+		VkSemaphoreCreateInfo semaphoreInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+		};
+
+		VkFenceCreateInfo fenceInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
+		};
+
+		_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			VkResult result = vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
+			if (result != VK_SUCCESS) {
+				throw std::exception("No fue posible crear el Semaforo de imagen disponible");
+			}
+
+			result = vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
+			if (result != VK_SUCCESS) {
+				throw std::exception("No fue posible crear el Semaforo de renderizacion finalizada");
+			}
+
+			result = vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_inFlightFences[i]);
+			if (result != VK_SUCCESS) {
+				throw std::exception("No fue posible crear el Fence");
+			}
+		}
+		
+		spdlog::info("Inicializacion de Objetos de sincronizacion exitosa");
+	}
+
+	void App::RecreateSwapChain()
+	{
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(_window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(_window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		VkResult result = vkDeviceWaitIdle(_logicalDevice);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("Error al esperar para el dispositivo al recrear el swapchain");
+		}
+
+		CleanUpSwapChain();
+
+		CreateSwapChain();
+		CreateImageViews();
+		CreateFramebuffers();
+	}
+
+	void App::CleanUpSwapChain()
+	{
+		for (auto framebuffer : _framebuffers) {
+			vkDestroyFramebuffer(_logicalDevice, framebuffer, nullptr);
+		}
+
+		for (auto imageView : _swapChainImageViews) {
+			vkDestroyImageView(_logicalDevice, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
+	}
+
+	void App::DrawFrame()
+	{
+		VkResult result = vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible esperar por el fence");
+		}
+
+		uint32_t imageIndex;
+		result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			RecreateSwapChain();
+			return;
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			throw std::exception("No fue posible obtener la imagen");
+		}
+
+		result = vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible resetear las fences");
+		}
+
+		vkResetCommandBuffer(_commandBuffers[_currentFrame], 0);
+
+		RecordCommandBuffer(_commandBuffers[_currentFrame], imageIndex);
+
+		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+		VkSubmitInfo submitInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],
+			.pWaitDstStageMask = waitStages,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &_commandBuffers[_currentFrame],
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],
+		};
+
+		result = vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible subir comandos en la cola de graficos");
+		}
+
+		VkSwapchainKHR swapChains[] = { _swapChain };
+		VkPresentInfoKHR presentInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &_renderFinishedSemaphores[_currentFrame],
+			.swapchainCount = 1,
+			.pSwapchains = swapChains,
+			.pImageIndices = &imageIndex,
+			.pResults = nullptr,
+		};
+
+		result = vkQueuePresentKHR(_presentQueue, &presentInfo);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _framebufferResized) {
+			_framebufferResized = false;
+			RecreateSwapChain();
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			throw std::exception("No fue posible presentar en la cola de presentacion");
+		}
+
+		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	VkShaderModule App::CreateShaderModule(const std::vector<char>& code)
@@ -812,6 +1003,70 @@ namespace HelloTriangle
 		spdlog::info("Inicializado Modulo shader correctamente");
 
 		return shaderModule;
+	}
+
+	void App::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
+	{
+		VkCommandBufferBeginInfo beginInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = 0,
+			.pInheritanceInfo = nullptr,
+		};
+
+		VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible empezar el grabado de comandos");
+		}
+
+		VkClearValue clearColor = { {{0.0f, 0.2f, 0.2f, 1.0f}} };
+
+		VkRenderPassBeginInfo renderPassInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.renderPass = _renderPass,
+			.framebuffer = _framebuffers[imageIndex],
+			.renderArea
+			{
+				.offset = {0, 0},
+				.extent = _swapChainExtent,
+			},
+			.clearValueCount = 1,
+			.pClearValues = &clearColor,
+		};
+
+		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
+
+		VkViewport viewport
+		{
+			.x = 0.0f,
+			.y = 0.0f,
+			.width = static_cast<float>(_swapChainExtent.width),
+			.height = static_cast<float>(_swapChainExtent.height),
+			.minDepth = 0.0f,
+			.maxDepth = 1.0f,
+		};
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		VkRect2D scissor
+		{
+			.offset = { 0, 0 },
+			.extent = _swapChainExtent,
+		};
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+		vkCmdEndRenderPass(commandBuffer);
+
+		result = vkEndCommandBuffer(commandBuffer);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible finalizar el grabado de comandos");
+		}
 	}
 
 	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
