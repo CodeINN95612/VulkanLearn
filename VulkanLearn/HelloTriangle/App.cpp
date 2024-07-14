@@ -20,6 +20,7 @@ struct Vertex
 {
 	glm::vec2 pos; 
 	glm::vec3 color;
+	glm::vec2 texCoord;
 
 	static VkVertexInputBindingDescription GetBindingDescription() {
 		VkVertexInputBindingDescription bindingDescription
@@ -32,8 +33,8 @@ struct Vertex
 		return bindingDescription;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() {
-		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+	static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
 
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
@@ -44,6 +45,11 @@ struct Vertex
 		attributeDescriptions[1].location = 1;
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		attributeDescriptions[2].binding = 0;
+		attributeDescriptions[2].location = 2;
+		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
 
 		return attributeDescriptions;
 	}
@@ -124,10 +130,10 @@ namespace HelloTriangle
 
 	const std::vector<Vertex> vertices = 
 	{
-		{{-0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}},
-		{{ 0.5f, -0.5f}, {0.2f, 0.0f, 0.0f}},
-		{{ 0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
-		{{-0.5f,  0.5f}, {0.2f, 0.0f, 0.0f}}
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
 	};
 
 	const std::vector<uint16_t> indices = 
@@ -262,6 +268,11 @@ namespace HelloTriangle
 
 		CleanUpSwapChain();
 
+		vkDestroySampler(_logicalDevice, _textureSampler, nullptr);
+		vkDestroyImageView(_logicalDevice, _textureImageView, nullptr);
+		vkDestroyImage(_logicalDevice, _textureImage, nullptr);
+		vkFreeMemory(_logicalDevice, _textureImageMemory, nullptr);
+
 		vkDestroyDescriptorPool(_logicalDevice, _descriptorPool, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -292,6 +303,10 @@ namespace HelloTriangle
 		CreateSurface();
 		PickPhysicalDevice();
 		CreateLogicalDevice();
+		CreateCommandPool();
+		CreateTextureImage();
+		CreateTextureImageView();
+		CreateTextureSampler();
 		CreateDescriptorSetLayout();
 		CreateUniformBuffers();
 		CreateDescriptorPool();
@@ -301,8 +316,6 @@ namespace HelloTriangle
 		CreateRenderPass();
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
-		CreateCommandPool();
-		CreateTextureImage();
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateCommandBuffers();
@@ -468,6 +481,7 @@ namespace HelloTriangle
 		}
 
 		VkPhysicalDeviceFeatures deviceFeatures{};
+		deviceFeatures.samplerAnisotropy = VK_TRUE;
 
 		VkDeviceCreateInfo deviceCreateInfo =
 		{
@@ -604,34 +618,7 @@ namespace HelloTriangle
 
 		for (size_t i = 0; i < _swapChainImages.size(); i++) 
 		{
-			VkImageViewCreateInfo createInfo = 
-			{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.image = _swapChainImages[i],
-				.viewType = VK_IMAGE_VIEW_TYPE_2D,
-				.format = _swapChainImageFormat,
-				.components = 
-				{
-					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.a = VK_COMPONENT_SWIZZLE_IDENTITY,
-				},
-				.subresourceRange = 
-				{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1,
-				}
-			};
-
-			VkResult result = vkCreateImageView(_logicalDevice, &createInfo, nullptr, &_swapChainImageViews[i]);
-			if (result != VK_SUCCESS)
-			{
-				throw std::exception("No fue posible crear las vista a la imagen");
-			}
+			_swapChainImageViews[i] = CreateImageView(_swapChainImages[i], _swapChainImageFormat);
 		}
 
 		spdlog::info("Inicializacion de Vistas a imagen exitosa");
@@ -1125,11 +1112,22 @@ namespace HelloTriangle
 			.pImmutableSamplers = nullptr,
 		};
 
+		VkDescriptorSetLayoutBinding samplerLayoutBinding
+		{
+			.binding = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.pImmutableSamplers = nullptr,
+		};
+
+		std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+
 		VkDescriptorSetLayoutCreateInfo layoutInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = 1,
-			.pBindings = &uboLayoutBinding,
+			.bindingCount = (uint32_t)bindings.size(),
+			.pBindings = bindings.data(),
 		};
 
 		VkResult result = vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_descriptorSetLayout);
@@ -1169,18 +1167,26 @@ namespace HelloTriangle
 	{
 		spdlog::info("Inicializando Descriptor Pool");
 
-		VkDescriptorPoolSize poolSize
+		VkDescriptorPoolSize uboPoolSize
 		{
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.descriptorCount = 1,
 		};
 
+		VkDescriptorPoolSize samplerPoolSize
+		{
+			.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.descriptorCount = 1,
+		};
+
+		std::array<VkDescriptorPoolSize, 2> poolSizes = { uboPoolSize, samplerPoolSize };
+
 		VkDescriptorPoolCreateInfo poolInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.maxSets = (uint32_t) MAX_FRAMES_IN_FLIGHT,
-			.poolSizeCount = 1,
-			.pPoolSizes = &poolSize,
+			.poolSizeCount = (uint32_t)poolSizes.size(),
+			.pPoolSizes = poolSizes.data(),
 		};
 
 		VkResult result = vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool);
@@ -1222,7 +1228,14 @@ namespace HelloTriangle
 				.range = sizeof(UniformBufferObject),
 			};
 
-			VkWriteDescriptorSet descriptorWrite
+			VkDescriptorImageInfo imageInfo
+			{
+				.sampler = _textureSampler,
+				.imageView = _textureImageView,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			VkWriteDescriptorSet bufferDescriptorWrite
 			{
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				.dstSet = _descriptorSets[i],
@@ -1233,7 +1246,20 @@ namespace HelloTriangle
 				.pBufferInfo = &bufferInfo,
 			};
 
-			vkUpdateDescriptorSets(_logicalDevice, 1, &descriptorWrite, 0, nullptr);
+			VkWriteDescriptorSet imageDescriptorWrite
+			{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = _descriptorSets[i],
+				.dstBinding = 1,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &imageInfo,
+			};
+
+			std::array<VkWriteDescriptorSet, 2> descriptorWrites = { bufferDescriptorWrite, imageDescriptorWrite };
+
+			vkUpdateDescriptorSets(_logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
 
 		spdlog::info("Inicializacion de Descriptor Sets exitosa");
@@ -1283,7 +1309,60 @@ namespace HelloTriangle
 				.image = _textureImage,
 				.imageMemory = _textureImageMemory});
 
+		TransitionImageLayout(_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		CopyBufferToImage(stagingBuffer, _textureImage, (uint32_t)texWidth, (uint32_t)texHeight);
+
+		TransitionImageLayout(_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		vkDestroyBuffer(_logicalDevice, stagingBuffer, nullptr);
+		vkFreeMemory(_logicalDevice, stagingBufferMemory, nullptr);
+
 		spdlog::info("Inicializacion de Imagen de Textura de escultura exitosa");
+	}
+
+	void App::CreateTextureImageView()
+	{
+		spdlog::info("Inicializando Vista de Imagen de Textura");
+
+		_textureImageView = CreateImageView(_textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+
+		spdlog::info("Inicializacion de Vista de Imagen de Textura exitosa");
+	}
+
+	void App::CreateTextureSampler()
+	{
+		spdlog::info("Inicializando Muestreador de Textura");
+
+		VkPhysicalDeviceProperties properties{};
+		vkGetPhysicalDeviceProperties(_physicalDevice, &properties);
+
+		VkSamplerCreateInfo samplerInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.magFilter = VK_FILTER_LINEAR,
+			.minFilter = VK_FILTER_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_TRUE,
+			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.minLod = 0.0f,
+			.maxLod = 0.0f,
+			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+			.unnormalizedCoordinates = VK_FALSE,
+		};
+
+		VkResult result = vkCreateSampler(_logicalDevice, &samplerInfo, nullptr, &_textureSampler);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear el Muestreador de Textura");
+		}
+
+		spdlog::info("Inicializacion de Muestreador de Textura exitosa");
 	}
 
 	void App::DrawFrame()
@@ -1397,7 +1476,7 @@ namespace HelloTriangle
 			throw std::exception("No fue posible empezar el grabado de comandos");
 		}
 
-		VkClearValue clearColor = { {{0.0f, 0.2f, 0.2f, 1.0f}} };
+		VkClearValue clearColor = { {{0.005f, 0.005f, 0.005f, 1.0f}} };
 
 		VkRenderPassBeginInfo renderPassInfo
 		{
@@ -1557,6 +1636,156 @@ namespace HelloTriangle
 
 	void App::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 	{
+		VkCommandBuffer commandBuffer = StartTemporaryCommandBuffer();
+
+		VkBufferCopy copyRegion
+		{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = size,
+		};
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+		EndTemporaryCommandBuffer(commandBuffer);
+	}
+
+	void App::UpdateUniformBuffer(size_t currentImage)
+	{
+		static double startTime = glfwGetTime();
+		double currentTime = glfwGetTime();
+		double deltaTime = currentTime - startTime;
+
+		UniformBufferObject ubo
+		{
+			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.view = _camera.GetViewMatrix(),
+			.proj = glm::perspective(glm::radians(45.0f), _swapChainExtent.width / (float)_swapChainExtent.height, 0.01f, 100.0f),
+		};
+		ubo.proj[1][1] *= -1;
+
+		memcpy(_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+	}
+
+	void App::TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+	{
+		VkCommandBuffer commandBuffer = StartTemporaryCommandBuffer();
+
+		VkImageMemoryBarrier barrier
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.srcAccessMask = 0,
+			.dstAccessMask = 0,
+			.oldLayout = oldLayout,
+			.newLayout = newLayout,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = image,
+			.subresourceRange
+			{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		};
+
+		VkPipelineStageFlags sourceStage;
+		VkPipelineStageFlags destinationStage;
+
+		if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		else {
+			throw std::exception("Transicion de imagen no soportada");
+		}
+
+		vkCmdPipelineBarrier(
+			commandBuffer,
+			sourceStage, destinationStage,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, 
+			&barrier
+		);
+
+		EndTemporaryCommandBuffer(commandBuffer);
+	}
+
+	void App::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+	{
+		VkCommandBuffer commandBuffer = StartTemporaryCommandBuffer();
+		
+		VkBufferImageCopy region
+		{
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource
+			{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { width, height, 1 },
+		};
+
+		vkCmdCopyBufferToImage(
+			commandBuffer,
+			buffer,
+			image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&region
+		);
+
+		EndTemporaryCommandBuffer(commandBuffer);
+	}
+
+	VkImageView App::CreateImageView(VkImage image, VkFormat format)
+	{
+		VkImageViewCreateInfo viewInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image = image,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = format,
+			.subresourceRange
+			{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		};
+
+		VkImageView imageView = VK_NULL_HANDLE;
+		VkResult result = vkCreateImageView(_logicalDevice, &viewInfo, nullptr, &imageView);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear la vista de la imagen de textura");
+		}
+
+		return imageView;
+	}
+
+	VkCommandBuffer App::StartTemporaryCommandBuffer()
+	{
 		VkCommandBufferAllocateInfo allocInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1583,16 +1812,14 @@ namespace HelloTriangle
 		{
 			throw std::exception("No fue posible empezar el grabado de comandos de copia de memoria");
 		}
+		
+		return commandBuffer;
+	}
 
-		VkBufferCopy copyRegion
-		{
-			.srcOffset = 0,
-			.dstOffset = 0,
-			.size = size,
-		};
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+	void App::EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer)
+	{
 
-		result = vkEndCommandBuffer(commandBuffer);
+		VkResult result = vkEndCommandBuffer(commandBuffer);
 		if (result != VK_SUCCESS)
 		{
 			throw std::exception("No fue posible finalizar el grabado de comandos de copia de memoria");
@@ -1618,25 +1845,6 @@ namespace HelloTriangle
 		}
 
 		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
-
-
-	}
-
-	void App::UpdateUniformBuffer(size_t currentImage)
-	{
-		static double startTime = glfwGetTime();
-		double currentTime = glfwGetTime();
-		double deltaTime = currentTime - startTime;
-
-		UniformBufferObject ubo
-		{
-			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
-			.view = _camera.GetViewMatrix(),
-			.proj = glm::perspective(glm::radians(45.0f), _swapChainExtent.width / (float)_swapChainExtent.height, 0.01f, 100.0f),
-		};
-		ubo.proj[1][1] *= -1;
-
-		memcpy(_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
 
 	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
@@ -1760,6 +1968,11 @@ namespace HelloTriangle
 		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface);
 		bool swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
 		if (!swapChainAdequate)
+		{
+			return false;
+		}
+
+		if (!deviceFeatures.samplerAnisotropy)
 		{
 			return false;
 		}

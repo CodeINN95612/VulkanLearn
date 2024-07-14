@@ -74,6 +74,8 @@ namespace HelloTriangle
 		void CreateDescriptorSets();
 
 		void CreateTextureImage();
+		void CreateTextureImageView();
+		void CreateTextureSampler();
 		
 		void DrawFrame();
 
@@ -83,6 +85,12 @@ namespace HelloTriangle
 		void CreateImage(CreateImageParams params);
 		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 		void UpdateUniformBuffer(size_t currentImage);
+		void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+		void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+		VkImageView CreateImageView(VkImage image, VkFormat format);
+
+		VkCommandBuffer StartTemporaryCommandBuffer();
+		void EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer);
 
 	private:
 		GLFWwindow* _window = nullptr;
@@ -127,8 +135,10 @@ namespace HelloTriangle
 		std::vector<VkDeviceMemory> _uniformBuffersMemory;
 		std::vector<void*> _uniformBuffersMapped;
 
-		VkImage _textureImage;
-		VkDeviceMemory _textureImageMemory;
+		VkImage _textureImage = VK_NULL_HANDLE;
+		VkImageView _textureImageView = VK_NULL_HANDLE;
+		VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
+		VkSampler _textureSampler = VK_NULL_HANDLE;
 
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
