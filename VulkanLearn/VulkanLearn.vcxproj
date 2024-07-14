@@ -127,10 +127,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="HelloTriangle\App.cpp" />
+    <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="vendor\stb\stb_image.cpp" />
     <ClCompile Include="VulkanLearn.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HelloTriangle\App.hpp" />
+    <ClInclude Include="src\Camera.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="HelloTriangle\assets\shaders\shader.frag" />

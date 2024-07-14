@@ -9,8 +9,22 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
+#include "../src/Camera.hpp"
+
 namespace HelloTriangle
 {
+	struct CreateImageParams
+	{
+		uint32_t width;
+		uint32_t height;
+		VkFormat format;
+		VkImageTiling tiling;
+		VkImageUsageFlags usage;
+		VkMemoryPropertyFlags properties;
+		VkImage& image;
+		VkDeviceMemory& imageMemory;
+	};
+
 	class App
 	{
 	public:
@@ -26,6 +40,7 @@ namespace HelloTriangle
 
 	public:
 		inline void SetResized(bool resized) { _framebufferResized = resized; }
+		void OnScroll(double yoffset);
 
 	private:
 		void InitWindow();
@@ -52,13 +67,22 @@ namespace HelloTriangle
 
 		void CreateVertexBuffer();
 		void CreateIndexBuffer();
+
+		void CreateDescriptorSetLayout();
+		void CreateUniformBuffers();
+		void CreateDescriptorPool();
+		void CreateDescriptorSets();
+
+		void CreateTextureImage();
 		
 		void DrawFrame();
 
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 		void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+		void CreateImage(CreateImageParams params);
 		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+		void UpdateUniformBuffer(size_t currentImage);
 
 	private:
 		GLFWwindow* _window = nullptr;
@@ -95,7 +119,20 @@ namespace HelloTriangle
 		VkBuffer _indexBuffer = VK_NULL_HANDLE;
 		VkDeviceMemory _indexBufferMemory = VK_NULL_HANDLE;
 
+		VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
+		VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
+
+		std::vector<VkDescriptorSet> _descriptorSets;
+		std::vector<VkBuffer> _uniformBuffers;
+		std::vector<VkDeviceMemory> _uniformBuffersMemory;
+		std::vector<void*> _uniformBuffersMapped;
+
+		VkImage _textureImage;
+		VkDeviceMemory _textureImageMemory;
+
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
+
+		Camera _camera;
 	};
 }

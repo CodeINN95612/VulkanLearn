@@ -4,7 +4,17 @@
 #include <fstream>
 #include <algorithm>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <stb/stb_image.h>
+
+struct UniformBufferObject {
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
+};
 
 struct Vertex 
 {
@@ -107,7 +117,8 @@ namespace HelloTriangle
 		"VK_LAYER_KHRONOS_validation"
 	};
 
-	static  const std::vector<const char*> requiredDeviceExtensions = {
+	static  const std::vector<const char*> requiredDeviceExtensions = 
+	{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
 	};
 
@@ -150,6 +161,11 @@ namespace HelloTriangle
 		Clean();
 	}
 
+	void App::OnScroll(double yoffset)
+	{
+		_camera.OnScroll((float)yoffset);
+	}
+
 	void App::InitWindow()
 	{
 		spdlog::info("Inicializando Ventana");
@@ -169,6 +185,13 @@ namespace HelloTriangle
 				spdlog::info("Cambio de tamaño de ventana: {0}, {1}", width, height);
 				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
 				app->SetResized(true);
+			}
+		);
+
+		glfwSetScrollCallback(_window, [](GLFWwindow* window, double xoffset, double yoffset)
+			{
+				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+				app->OnScroll(yoffset);
 			}
 		);
 
@@ -239,6 +262,15 @@ namespace HelloTriangle
 
 		CleanUpSwapChain();
 
+		vkDestroyDescriptorPool(_logicalDevice, _descriptorPool, nullptr);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroyBuffer(_logicalDevice, _uniformBuffers[i], nullptr);
+			vkFreeMemory(_logicalDevice, _uniformBuffersMemory[i], nullptr);
+		}
+
+		vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
+
 		vkDestroyDevice(_logicalDevice, nullptr);
 
 		vkDestroySurfaceKHR(_instance, _surface, nullptr);
@@ -260,12 +292,17 @@ namespace HelloTriangle
 		CreateSurface();
 		PickPhysicalDevice();
 		CreateLogicalDevice();
+		CreateDescriptorSetLayout();
+		CreateUniformBuffers();
+		CreateDescriptorPool();
+		CreateDescriptorSets();
 		CreateSwapChain();
 		CreateImageViews();
 		CreateRenderPass();
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
 		CreateCommandPool();
+		CreateTextureImage();
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateCommandBuffers();
@@ -751,7 +788,7 @@ namespace HelloTriangle
 			.rasterizerDiscardEnable = VK_FALSE,
 			.polygonMode = VK_POLYGON_MODE_FILL,
 			.cullMode = VK_CULL_MODE_BACK_BIT,
-			.frontFace = VK_FRONT_FACE_CLOCKWISE,
+			.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 			.depthBiasEnable = VK_FALSE,
 			.depthBiasConstantFactor = 0.0f,
 			.depthBiasClamp = 0.0f,
@@ -798,8 +835,8 @@ namespace HelloTriangle
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			.setLayoutCount = 0,
-			.pSetLayouts = nullptr,
+			.setLayoutCount = 1,
+			.pSetLayouts = &_descriptorSetLayout,
 			.pushConstantRangeCount = 0,
 			.pPushConstantRanges = nullptr,
 		};
@@ -1075,6 +1112,180 @@ namespace HelloTriangle
 		spdlog::info("Inicializacion de Buffer de Indices exitosa");
 	}
 
+	void App::CreateDescriptorSetLayout()
+	{
+		spdlog::info("Inicializando Descriptor Set Layout");
+
+		VkDescriptorSetLayoutBinding uboLayoutBinding
+		{
+			.binding = 0,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+			.pImmutableSamplers = nullptr,
+		};
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.bindingCount = 1,
+			.pBindings = &uboLayoutBinding,
+		};
+
+		VkResult result = vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_descriptorSetLayout);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear el Descriptor Set Layout");
+		}
+
+		spdlog::info("Inicializacion de Descriptor Set Layout exitosa");
+	}
+
+	void App::CreateUniformBuffers()
+	{
+		size_t size = sizeof(UniformBufferObject); 
+
+		_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		_uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		_uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			CreateBuffer(
+				size,
+				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+				_uniformBuffers[i], 
+				_uniformBuffersMemory[i]);
+
+			VkResult result = vkMapMemory(_logicalDevice, _uniformBuffersMemory[i], 0, size, 0, &_uniformBuffersMapped[i]);
+			if (result != VK_SUCCESS) 
+			{
+				throw std::exception("No fue posible mapear la memoria del Uniform Buffer");
+			}
+		}
+	}
+
+	void App::CreateDescriptorPool()
+	{
+		spdlog::info("Inicializando Descriptor Pool");
+
+		VkDescriptorPoolSize poolSize
+		{
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1,
+		};
+
+		VkDescriptorPoolCreateInfo poolInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.maxSets = (uint32_t) MAX_FRAMES_IN_FLIGHT,
+			.poolSizeCount = 1,
+			.pPoolSizes = &poolSize,
+		};
+
+		VkResult result = vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear el Descriptor Pool");
+		}
+
+		spdlog::info("Inicializacion de Descriptor Pool exitosa");
+	}
+
+	void App::CreateDescriptorSets()
+	{
+		spdlog::info("Inicializando Descriptor Sets");
+
+		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, _descriptorSetLayout);
+
+		VkDescriptorSetAllocateInfo allocInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = _descriptorPool,
+			.descriptorSetCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+			.pSetLayouts = layouts.data(),
+		};
+
+		_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		VkResult result = vkAllocateDescriptorSets(_logicalDevice, &allocInfo, _descriptorSets.data());
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible asignar los Descriptor Sets");
+		}
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			VkDescriptorBufferInfo bufferInfo
+			{
+				.buffer = _uniformBuffers[i],
+				.offset = 0,
+				.range = sizeof(UniformBufferObject),
+			};
+
+			VkWriteDescriptorSet descriptorWrite
+			{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = _descriptorSets[i],
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo = &bufferInfo,
+			};
+
+			vkUpdateDescriptorSets(_logicalDevice, 1, &descriptorWrite, 0, nullptr);
+		}
+
+		spdlog::info("Inicializacion de Descriptor Sets exitosa");
+
+	}
+
+	void App::CreateTextureImage()
+	{
+		spdlog::info("Inicializando Imagen de Textura de escultura");
+
+		int texWidth, texHeight, texChannels;
+		stbi_uc* pixels = stbi_load("HelloTriangle/assets/textures/sculpture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+		if (!pixels) {
+			throw std::exception("No fue posible cargar la textura");
+		}
+		
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		CreateBuffer(
+			imageSize, 
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+			stagingBuffer, 
+			stagingBufferMemory);
+
+		void* data;
+		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, imageSize, 0, &data);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible mapear la memoria de la imagen");
+		}
+
+		memcpy(data, pixels, static_cast<size_t>(imageSize));
+
+		vkUnmapMemory(_logicalDevice, stagingBufferMemory);
+
+		stbi_image_free(pixels);
+
+		CreateImage({.width = (uint32_t)texWidth,
+				.height = (uint32_t)texHeight,
+				.format = VK_FORMAT_R8G8B8A8_SRGB,
+				.tiling = VK_IMAGE_TILING_OPTIMAL,
+				.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				.image = _textureImage,
+				.imageMemory = _textureImageMemory});
+
+		spdlog::info("Inicializacion de Imagen de Textura de escultura exitosa");
+	}
+
 	void App::DrawFrame()
 	{
 		VkResult result = vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
@@ -1102,6 +1313,8 @@ namespace HelloTriangle
 		vkResetCommandBuffer(_commandBuffers[_currentFrame], 0);
 
 		RecordCommandBuffer(_commandBuffers[_currentFrame], imageIndex);
+
+		UpdateUniformBuffer(_currentFrame);
 
 		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 		VkSubmitInfo submitInfo
@@ -1228,6 +1441,16 @@ namespace HelloTriangle
 
 		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
+		vkCmdBindDescriptorSets(
+			commandBuffer, 
+			VK_PIPELINE_BIND_POINT_GRAPHICS, 
+			_pipelineLayout, 
+			0, 
+			1, 
+			&_descriptorSets[_currentFrame], 
+			0, 
+			nullptr);
+
 		vkCmdDrawIndexed(commandBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
@@ -1279,6 +1502,57 @@ namespace HelloTriangle
 			throw std::exception("No fue posible asignar memoria al Buffer con la memoria de vertices");
 		}
 		spdlog::info("Inicializacion de Buffer exitosa");
+	}
+
+	void App::CreateImage(CreateImageParams params)
+	{
+		VkImageCreateInfo imageInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+			.imageType = VK_IMAGE_TYPE_2D,
+			.format = VK_FORMAT_R8G8B8A8_SRGB,
+			.extent
+			{
+				.width = params.width,
+				.height = params.height,
+				.depth = 1,
+			},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+
+		VkResult result = vkCreateImage(_logicalDevice, &imageInfo, nullptr, &params.image);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible crear la imagen de textura");
+		}
+
+		VkMemoryRequirements memRequirements;
+		vkGetImageMemoryRequirements(_logicalDevice, params.image, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _physicalDevice),
+		};
+
+		result = vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &params.imageMemory);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible asignar memoria a la imagen de textura");
+		}
+
+		result = vkBindImageMemory(_logicalDevice, params.image, params.imageMemory, 0);
+		if (result != VK_SUCCESS)
+		{
+			throw std::exception("No fue posible asignar memoria a la imagen de textura en binding");
+		}
 	}
 
 	void App::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
@@ -1346,6 +1620,23 @@ namespace HelloTriangle
 		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
 
 
+	}
+
+	void App::UpdateUniformBuffer(size_t currentImage)
+	{
+		static double startTime = glfwGetTime();
+		double currentTime = glfwGetTime();
+		double deltaTime = currentTime - startTime;
+
+		UniformBufferObject ubo
+		{
+			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.view = _camera.GetViewMatrix(),
+			.proj = glm::perspective(glm::radians(45.0f), _swapChainExtent.width / (float)_swapChainExtent.height, 0.01f, 100.0f),
+		};
+		ubo.proj[1][1] *= -1;
+
+		memcpy(_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
 
 	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
