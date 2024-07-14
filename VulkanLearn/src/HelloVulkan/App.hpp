@@ -9,9 +9,9 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-#include "../src/Camera.hpp"
+#include "../Camera.hpp"
 
-namespace HelloTriangle
+namespace HelloVulkan
 {
 	struct CreateImageParams
 	{

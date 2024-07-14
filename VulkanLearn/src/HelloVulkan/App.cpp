@@ -99,7 +99,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	return VK_FALSE;
 }
 
-namespace HelloTriangle
+namespace HelloVulkan
 {
 	struct QueueFamilyIndices
 	{
@@ -342,7 +342,7 @@ namespace HelloTriangle
 		VkApplicationInfo appInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-			.pApplicationName = "Hello Triangle",
+			.pApplicationName = "Hello Vulkan",
 			.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
 			.pEngineName = "No Engine",
 			.engineVersion = VK_MAKE_VERSION(1, 0, 0),
@@ -721,8 +721,8 @@ namespace HelloTriangle
 	{
 		spdlog::info("Inicializando Graphics pipeline");
 
-		auto vertShaderCode = readFile("HelloTriangle/assets/shaders/shader.vert.spv");
-		auto fragShaderCode = readFile("HelloTriangle/assets/shaders/shader.frag.spv");
+		auto vertShaderCode = readFile("assets/shaders/shader.vert.spv");
+		auto fragShaderCode = readFile("assets/shaders/shader.frag.spv");
 
 		VkShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
 		VkShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
@@ -1320,7 +1320,7 @@ namespace HelloTriangle
 		spdlog::info("Inicializando Imagen de Textura de escultura");
 
 		int texWidth, texHeight, texChannels;
-		stbi_uc* pixels = stbi_load("HelloTriangle/assets/textures/sculpture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		stbi_uc* pixels = stbi_load("assets/textures/sculpture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 		VkDeviceSize imageSize = texWidth * texHeight * 4;
 
 		if (!pixels) {

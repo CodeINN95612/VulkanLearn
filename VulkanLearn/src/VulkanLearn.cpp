@@ -1,13 +1,13 @@
 #include <spdlog/spdlog.h>
 
-#include "HelloTriangle/App.hpp"
+#include "HelloVulkan/App.hpp"
 
 int main(int argc, char** argv) {
 
     spdlog::set_pattern("[thread %t] [%H:%M:%S] [%^%L%$] %v");
     spdlog::set_level(spdlog::level::debug);
 
-    HelloTriangle::App app;
+    HelloVulkan::App app;
 
     try 
     {

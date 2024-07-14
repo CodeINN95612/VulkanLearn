@@ -126,18 +126,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="HelloTriangle\App.cpp" />
     <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="src\HelloVulkan\App.cpp" />
     <ClCompile Include="vendor\stb\stb_image.cpp" />
-    <ClCompile Include="VulkanLearn.cpp" />
+    <ClCompile Include="src\VulkanLearn.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="HelloTriangle\App.hpp" />
     <ClInclude Include="src\Camera.hpp" />
+    <ClInclude Include="src\HelloVulkan\App.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="HelloTriangle\assets\shaders\shader.frag" />
-    <None Include="HelloTriangle\assets\shaders\shader.vert" />
+    <None Include="assets\shaders\shader.frag" />
+    <None Include="assets\shaders\shader.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
