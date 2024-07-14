@@ -76,6 +76,8 @@ namespace HelloTriangle
 		void CreateTextureImage();
 		void CreateTextureImageView();
 		void CreateTextureSampler();
+
+		void CreateDepthResources();
 		
 		void DrawFrame();
 
@@ -87,7 +89,9 @@ namespace HelloTriangle
 		void UpdateUniformBuffer(size_t currentImage);
 		void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 		void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-		VkImageView CreateImageView(VkImage image, VkFormat format);
+		VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+		VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+		VkFormat FindDepthFormat();
 
 		VkCommandBuffer StartTemporaryCommandBuffer();
 		void EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer);
@@ -139,6 +143,10 @@ namespace HelloTriangle
 		VkImageView _textureImageView = VK_NULL_HANDLE;
 		VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
 		VkSampler _textureSampler = VK_NULL_HANDLE;
+
+		VkImage _depthImage = VK_NULL_HANDLE;
+		VkImageView _depthImageView = VK_NULL_HANDLE;
+		VkDeviceMemory _depthImageMemory = VK_NULL_HANDLE;
 
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
