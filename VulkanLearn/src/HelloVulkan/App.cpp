@@ -9,52 +9,24 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
+
 #include <stb/stb_image.h>
 
-struct UniformBufferObject {
-	glm::mat4 model;
-	glm::mat4 view;
-	glm::mat4 proj;
-};
+#include <tinyobjloader/tiny_obj_loader.h>
+#include "../Engine/InputState.hpp"
 
-struct Vertex 
-{
-	glm::vec3 pos; 
-	glm::vec3 color;
-	glm::vec2 texCoord;
 
-	static VkVertexInputBindingDescription GetBindingDescription() {
-		VkVertexInputBindingDescription bindingDescription
-		{
-			.binding = 0,
-			.stride = sizeof(Vertex),
-			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-		};
-
-		return bindingDescription;
-	}
-
-	static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
-		std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-
-		attributeDescriptions[0].binding = 0;
-		attributeDescriptions[0].location = 0;
-		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-		attributeDescriptions[1].binding = 0;
-		attributeDescriptions[1].location = 1;
-		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[1].offset = offsetof(Vertex, color);
-
-		attributeDescriptions[2].binding = 0;
-		attributeDescriptions[2].location = 2;
-		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-		return attributeDescriptions;
-	}
-};
+namespace std {
+	template<> struct hash<HelloVulkan::Vertex> {
+		size_t operator()(HelloVulkan::Vertex const& vertex) const {
+			return ((hash<glm::vec3>()(vertex.pos) ^
+				(hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+				(hash<glm::vec2>()(vertex.texCoord) << 1);
+		}
+	};
+}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback( 
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -67,7 +39,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	{
 		case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT: 
 			type = "GENERAL";
-			//return VK_FALSE;
 			break;
 		case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
 			type = "VALIDACION";
@@ -129,7 +100,7 @@ namespace HelloVulkan
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
 	};
 
-	const std::vector<Vertex> vertices = 
+	/*const std::vector<Vertex> _vertices = 
 	{
 		{{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
 		{{ 0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
@@ -146,7 +117,7 @@ namespace HelloVulkan
 	{
 		0, 1, 2, 2, 3, 0,
 		4, 5, 6, 6, 7, 4
-	};
+	};*/
 
 	static void checkRequiredExtensions(const std::vector<const char*>& requiredExtensions);
 	static void checkRequiredLayers(const std::vector<const char*>& requiredLayers);
@@ -164,6 +135,7 @@ namespace HelloVulkan
 	
 
 	App::App()
+		: _camera(WIDTH, HEIGHT)
 	{
 	}
 
@@ -192,6 +164,7 @@ namespace HelloVulkan
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 		_window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Triangle", nullptr, nullptr);
+		glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetWindowUserPointer(_window, this);
 
 		glfwSetFramebufferSizeCallback(_window, [](GLFWwindow* window, int width, int height)
@@ -209,6 +182,23 @@ namespace HelloVulkan
 			}
 		);
 
+		glfwSetCursorPosCallback(_window, [](GLFWwindow* window, double xpos, double ypos)
+			{
+				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+
+				static double lastX = xpos;
+				static double lastY = ypos;
+
+				double xoffset = xpos - lastX;
+				double yoffset = lastY - ypos;
+
+				app->GetCamera().OnMouseMove((float)xoffset, (float)yoffset);
+
+				lastX = xpos;
+				lastY = ypos;
+			}
+		);
+
 		if (!_window) {
 			throw std::exception("Error al crear la ventana");
 		}
@@ -218,29 +208,65 @@ namespace HelloVulkan
 
 	void App::Loop()
 	{
-		double currentTime = glfwGetTime();
-		double lastTime = currentTime;
-		int numFrames = 0;
-		float frameTime;
-
 		while (!glfwWindowShouldClose(_window)) {
-			glfwPollEvents();
-			DrawFrame();
 
-			currentTime = glfwGetTime();
-			double delta = currentTime - lastTime;
+			float currentFrame = static_cast<float>(glfwGetTime());
+			deltaTime = currentFrame - lastFrame;
+			lastFrame = currentFrame;
 
-			if (delta >= 1) {
-				int framerate = std::max(1, int(numFrames / delta));
-				std::stringstream title;
-				title << "Render Thread running at " << framerate << " fps.";
-				glfwSetWindowTitle(_window, title.str().c_str());
-				lastTime = currentTime;
-				numFrames = -1;
-				frameTime = float(1000.0 / framerate);
+			if (glfwGetKey(_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+			{
+				if (glfwGetInputMode(_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED)
+				{
+					glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+				}
+				else
+				{
+					glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+				}
 			}
 
-			++numFrames;
+			if (glfwGetKey(_window, GLFW_KEY_W) == GLFW_PRESS)
+			{
+				Engine::InputState::Up = true;
+			}
+			else
+			{
+				Engine::InputState::Up = false;
+			}
+
+			if (glfwGetKey(_window, GLFW_KEY_S) == GLFW_PRESS)
+			{
+				Engine::InputState::Down = true;
+			}
+			else
+			{
+				Engine::InputState::Down = false;
+			}
+
+			if (glfwGetKey(_window, GLFW_KEY_A) == GLFW_PRESS)
+			{
+				Engine::InputState::Left = true;
+			}
+			else
+			{
+				Engine::InputState::Left = false;
+			}
+
+			if (glfwGetKey(_window, GLFW_KEY_D) == GLFW_PRESS)
+			{
+				Engine::InputState::Right = true;
+			}
+			else
+			{
+				Engine::InputState::Right = false;
+			}
+
+			_camera.OnUpdate(deltaTime);
+
+			DrawFrame();
+
+			glfwPollEvents();
 		}
 
 		VkResult result = vkDeviceWaitIdle(_logicalDevice);
@@ -273,10 +299,6 @@ namespace HelloVulkan
 		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
 
 		vkDestroyRenderPass(_logicalDevice, _renderPass, nullptr);
-
-		vkDestroyImageView(_logicalDevice, _depthImageView, nullptr);
-		vkDestroyImage(_logicalDevice, _depthImage, nullptr);
-		vkFreeMemory(_logicalDevice, _depthImageMemory, nullptr);
 
 		CleanUpSwapChain();
 
@@ -316,7 +338,7 @@ namespace HelloVulkan
 		PickPhysicalDevice();
 		CreateLogicalDevice();
 		CreateCommandPool();
-		CreateTextureImage();
+		CreateTextureImage(TEXTURE_PATH.c_str());
 		CreateTextureImageView();
 		CreateTextureSampler();
 		CreateDescriptorSetLayout();
@@ -329,6 +351,7 @@ namespace HelloVulkan
 		CreateRenderPass();
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
+		LoadModel(MODEL_PATH.c_str());
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateCommandBuffers();
@@ -1055,6 +1078,10 @@ namespace HelloVulkan
 
 	void App::CleanUpSwapChain()
 	{
+		vkDestroyImageView(_logicalDevice, _depthImageView, nullptr);
+		vkDestroyImage(_logicalDevice, _depthImage, nullptr);
+		vkFreeMemory(_logicalDevice, _depthImageMemory, nullptr);
+
 		for (auto framebuffer : _framebuffers) {
 			vkDestroyFramebuffer(_logicalDevice, framebuffer, nullptr);
 		}
@@ -1068,9 +1095,9 @@ namespace HelloVulkan
 
 	void App::CreateVertexBuffer()
 	{
-		spdlog::info("Inicializando Buffer de Vertices");
+		spdlog::info("Inicializando Buffer de _vertices");
 
-		size_t size = sizeof(vertices[0]) * vertices.size();
+		size_t size = sizeof(_vertices[0]) * _vertices.size();
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
@@ -1085,10 +1112,10 @@ namespace HelloVulkan
 		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data);
 		if (result != VK_SUCCESS)
 		{
-			throw std::exception("No fue posible mapear la memoria del Buffer de Vertices");
+			throw std::exception("No fue posible mapear la memoria del Buffer de vertices");
 		}
 
-		memcpy(data, vertices.data(), size);
+		memcpy(data, _vertices.data(), size);
 
 		vkUnmapMemory(_logicalDevice, stagingBufferMemory);
 
@@ -1104,14 +1131,14 @@ namespace HelloVulkan
 		vkDestroyBuffer(_logicalDevice, stagingBuffer, nullptr);
 		vkFreeMemory(_logicalDevice, stagingBufferMemory, nullptr);
 
-		spdlog::info("Inicializacion de Buffer de Vertices exitosa");
+		spdlog::info("Inicializacion de Buffer de vertices exitosa");
 	}
 
 	void App::CreateIndexBuffer()
 	{
 		spdlog::info("Inicializando Buffer de Indices");
 
-		size_t size = sizeof(indices[0]) * indices.size();
+		size_t size = sizeof(_indices[0]) * _indices.size();
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
@@ -1129,7 +1156,7 @@ namespace HelloVulkan
 			throw std::exception("No fue posible mapear la memoria del Buffer de Indices");
 		}
 
-		memcpy(data, indices.data(), size);
+		memcpy(data, _indices.data(), size);
 
 		vkUnmapMemory(_logicalDevice, stagingBufferMemory);
 
@@ -1315,12 +1342,12 @@ namespace HelloVulkan
 
 	}
 
-	void App::CreateTextureImage()
+	void App::CreateTextureImage(const char* path)
 	{
 		spdlog::info("Inicializando Imagen de Textura de escultura");
 
 		int texWidth, texHeight, texChannels;
-		stbi_uc* pixels = stbi_load("assets/textures/sculpture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		stbi_uc* pixels = stbi_load(path, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 		VkDeviceSize imageSize = texWidth * texHeight * 4;
 
 		if (!pixels) {
@@ -1412,6 +1439,47 @@ namespace HelloVulkan
 		}
 
 		spdlog::info("Inicializacion de Muestreador de Textura exitosa");
+	}
+
+	void App::LoadModel(const char* path)
+	{
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		std::string warn, err;
+
+		bool loaded = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path);
+		if (!loaded)
+		{
+			throw std::exception("No fue posible cargar el modelo");
+		}
+
+		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+		for (const auto& shape : shapes) {
+			for (const auto& index : shape.mesh.indices) {
+				Vertex vertex{};
+
+				vertex.pos = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2]
+				};
+
+				vertex.texCoord = {
+					attrib.texcoords[2 * index.texcoord_index + 0],
+					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+				};
+
+				vertex.color = { 1.0f, 1.0f, 1.0f };
+
+				if (uniqueVertices.count(vertex) == 0) {
+					uniqueVertices[vertex] = (uint32_t)_vertices.size();
+					_vertices.push_back(vertex);
+				}
+
+				_indices.push_back(uniqueVertices[vertex]);
+			}
+		}
 	}
 
 	void App::CreateDepthResources()
@@ -1590,7 +1658,7 @@ namespace HelloVulkan
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 		vkCmdBindDescriptorSets(
 			commandBuffer, 
@@ -1602,7 +1670,7 @@ namespace HelloVulkan
 			0, 
 			nullptr);
 
-		vkCmdDrawIndexed(commandBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -1650,7 +1718,7 @@ namespace HelloVulkan
 		result = vkBindBufferMemory(_logicalDevice, buffer, bufferMemory, 0);
 		if (result != VK_SUCCESS)
 		{
-			throw std::exception("No fue posible asignar memoria al Buffer con la memoria de vertices");
+			throw std::exception("No fue posible asignar memoria al Buffer con la memoria de _vertices");
 		}
 		spdlog::info("Inicializacion de Buffer exitosa");
 	}
@@ -1727,11 +1795,13 @@ namespace HelloVulkan
 		double currentTime = glfwGetTime();
 		double deltaTime = currentTime - startTime;
 
+		_camera.Resize(_swapChainExtent.width, _swapChainExtent.height);
+
 		UniformBufferObject ubo
 		{
-			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(00.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
 			.view = _camera.GetViewMatrix(),
-			.proj = glm::perspective(glm::radians(45.0f), _swapChainExtent.width / (float)_swapChainExtent.height, 0.01f, 100.0f),
+			.proj = _camera.GetProjectionMatrix(),
 		};
 		ubo.proj[1][1] *= -1;
 
@@ -2270,4 +2340,6 @@ namespace HelloVulkan
 
 		return buffer;
 	}
+
+
 }

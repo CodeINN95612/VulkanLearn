@@ -9,10 +9,59 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-#include "../Camera.hpp"
+#include "../Engine/Camera.hpp"
 
 namespace HelloVulkan
 {
+	struct UniformBufferObject {
+		glm::mat4 model;
+		glm::mat4 view;
+		glm::mat4 proj;
+	};
+
+	struct Vertex
+	{
+		glm::vec3 pos;
+		glm::vec3 color;
+		glm::vec2 texCoord;
+
+		static VkVertexInputBindingDescription GetBindingDescription() {
+			VkVertexInputBindingDescription bindingDescription
+			{
+				.binding = 0,
+				.stride = sizeof(Vertex),
+				.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+			};
+
+			return bindingDescription;
+		}
+
+		static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
+			std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+
+			attributeDescriptions[0].binding = 0;
+			attributeDescriptions[0].location = 0;
+			attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+			attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+			attributeDescriptions[1].binding = 0;
+			attributeDescriptions[1].location = 1;
+			attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+			attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+			attributeDescriptions[2].binding = 0;
+			attributeDescriptions[2].location = 2;
+			attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+			attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
+			return attributeDescriptions;
+		}
+
+		bool operator==(const Vertex& other) const {
+			return pos == other.pos && color == other.color && texCoord == other.texCoord;
+		}
+	};
+
 	struct CreateImageParams
 	{
 		uint32_t width;
@@ -34,13 +83,19 @@ namespace HelloVulkan
 		void Run();
 
 	public:
-		static const uint32_t WIDTH = 800;
-		static const uint32_t HEIGHT = 600;
+		static const uint32_t WIDTH = 1200;
+		static const uint32_t HEIGHT = 800;
 		static const size_t MAX_FRAMES_IN_FLIGHT = 2;
+
+		const std::string MODEL_PATH = "assets/models/viking_room.obj";
+		const std::string TEXTURE_PATH = "assets/textures/viking_room.png";
 
 	public:
 		inline void SetResized(bool resized) { _framebufferResized = resized; }
 		void OnScroll(double yoffset);
+
+		inline const Engine::Camera& GetCamera() const { return _camera; }
+		inline Engine::Camera& GetCamera() { return _camera; }
 
 	private:
 		void InitWindow();
@@ -73,9 +128,11 @@ namespace HelloVulkan
 		void CreateDescriptorPool();
 		void CreateDescriptorSets();
 
-		void CreateTextureImage();
+		void CreateTextureImage(const char* path);
 		void CreateTextureImageView();
 		void CreateTextureSampler();
+
+		void LoadModel(const char* path);
 
 		void CreateDepthResources();
 		
@@ -126,6 +183,8 @@ namespace HelloVulkan
 		std::vector<VkSemaphore> _renderFinishedSemaphores;
 		std::vector<VkFence> _inFlightFences;
 
+		std::vector<Vertex> _vertices;
+		std::vector<uint32_t> _indices;
 		VkBuffer _vertexBuffer = VK_NULL_HANDLE;
 		VkDeviceMemory  _vertexBufferMemory = VK_NULL_HANDLE;
 		VkBuffer _indexBuffer = VK_NULL_HANDLE;
@@ -151,6 +210,8 @@ namespace HelloVulkan
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
 
-		Camera _camera;
+		float deltaTime = 0.0f;
+		float lastFrame = 0.0f;
+		Engine::Camera _camera;
 	};
 }

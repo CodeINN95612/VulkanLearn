@@ -126,13 +126,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\HelloVulkan\App.cpp" />
     <ClCompile Include="vendor\stb\stb_image.cpp" />
     <ClCompile Include="src\VulkanLearn.cpp" />
+    <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\Camera.hpp" />
+    <ClInclude Include="src\Engine\Camera.hpp" />
+    <ClInclude Include="src\Engine\InputState.hpp" />
     <ClInclude Include="src\HelloVulkan\App.hpp" />
   </ItemGroup>
   <ItemGroup>

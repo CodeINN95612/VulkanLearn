@@ -18,7 +18,7 @@
     <ClCompile Include="src\VulkanLearn.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\Camera.cpp">
+    <ClCompile Include="src\Engine\Camera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="vendor\stb\stb_image.cpp">
@@ -27,12 +27,18 @@
     <ClCompile Include="src\HelloVulkan\App.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\Camera.hpp">
+    <ClInclude Include="src\Engine\Camera.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\HelloVulkan\App.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Engine\InputState.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
