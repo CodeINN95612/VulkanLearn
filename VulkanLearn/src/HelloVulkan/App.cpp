@@ -169,9 +169,11 @@ namespace HelloVulkan
 
 		glfwSetFramebufferSizeCallback(_window, [](GLFWwindow* window, int width, int height)
 			{
-				spdlog::info("Cambio de tamaño de ventana: {0}, {1}", width, height);
 				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
 				app->SetResized(true);
+
+				bool minimized = width == 0 || height == 0;
+				app->SetDoRender(!minimized);
 			}
 		);
 
@@ -206,75 +208,49 @@ namespace HelloVulkan
 		spdlog::info("Inicializacion de Ventana exitosa");
 	}
 
-	void App::Loop()
-	{
-		while (!glfwWindowShouldClose(_window)) {
+    void App::Loop()
+    {
+        double lastTime = glfwGetTime();
+        int frameCount = 0;
 
-			float currentFrame = static_cast<float>(glfwGetTime());
-			deltaTime = currentFrame - lastFrame;
-			lastFrame = currentFrame;
+        while (!glfwWindowShouldClose(_window)) {
+            float currentFrame = static_cast<float>(glfwGetTime());
+            _deltaTime = currentFrame - _lastFrame;
+            _lastFrame = currentFrame;
 
-			if (glfwGetKey(_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwPollEvents();
+
+			OnUpdate(_deltaTime);
+
+			if (_doRender)
 			{
-				if (glfwGetInputMode(_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED)
-				{
-					glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-				}
-				else
-				{
-					glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-				}
-			}
-
-			if (glfwGetKey(_window, GLFW_KEY_W) == GLFW_PRESS)
-			{
-				Engine::InputState::Up = true;
+				OnRender();
 			}
 			else
 			{
-				Engine::InputState::Up = false;
+				//throttle the speed to avoid the endless spinning
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
 
-			if (glfwGetKey(_window, GLFW_KEY_S) == GLFW_PRESS)
-			{
-				Engine::InputState::Down = true;
-			}
-			else
-			{
-				Engine::InputState::Down = false;
-			}
+            // Calculate FPS
+            double currentTime = glfwGetTime();
+            frameCount++;
+            if (currentTime - lastTime >= 0.5) {
+                double fps = frameCount / (currentTime - lastTime);
+                std::string windowTitle = "Vulkan Triangle | FPS: " + std::to_string(fps);
+                glfwSetWindowTitle(_window, windowTitle.c_str());
+				_fps = fps;
+                frameCount = 0;
+                lastTime = currentTime;
+            }
+        }
 
-			if (glfwGetKey(_window, GLFW_KEY_A) == GLFW_PRESS)
-			{
-				Engine::InputState::Left = true;
-			}
-			else
-			{
-				Engine::InputState::Left = false;
-			}
-
-			if (glfwGetKey(_window, GLFW_KEY_D) == GLFW_PRESS)
-			{
-				Engine::InputState::Right = true;
-			}
-			else
-			{
-				Engine::InputState::Right = false;
-			}
-
-			_camera.OnUpdate(deltaTime);
-
-			DrawFrame();
-
-			glfwPollEvents();
-		}
-
-		VkResult result = vkDeviceWaitIdle(_logicalDevice);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al esperar para el dispositivo al finalizar");
-		}
-	}
+        VkResult result = vkDeviceWaitIdle(_logicalDevice);
+        if (result != VK_SUCCESS)
+        {
+            throw std::exception("Error al esperar para el dispositivo al finalizar");
+        }
+    }
 
 	void App::Clean()
 	{
@@ -328,6 +304,57 @@ namespace HelloVulkan
 		glfwTerminate();
 
 		spdlog::info("Limpiada exitosa");
+	}
+
+	void App::OnUpdate(float dt)
+	{
+		if (glfwGetKey(_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+		{
+			glfwSetWindowShouldClose(_window, GLFW_TRUE);
+		}
+
+		if (glfwGetKey(_window, GLFW_KEY_W) == GLFW_PRESS)
+		{
+			Engine::InputState::Up = true;
+		}
+		else
+		{
+			Engine::InputState::Up = false;
+		}
+
+		if (glfwGetKey(_window, GLFW_KEY_S) == GLFW_PRESS)
+		{
+			Engine::InputState::Down = true;
+		}
+		else
+		{
+			Engine::InputState::Down = false;
+		}
+
+		if (glfwGetKey(_window, GLFW_KEY_A) == GLFW_PRESS)
+		{
+			Engine::InputState::Left = true;
+		}
+		else
+		{
+			Engine::InputState::Left = false;
+		}
+
+		if (glfwGetKey(_window, GLFW_KEY_D) == GLFW_PRESS)
+		{
+			Engine::InputState::Right = true;
+		}
+		else
+		{
+			Engine::InputState::Right = false;
+		}
+
+		_camera.OnUpdate(_deltaTime);
+	}
+
+	void App::OnRender()
+	{
+		DrawFrame();
 	}
 
 	void App::InitVulkan()
@@ -1055,13 +1082,6 @@ namespace HelloVulkan
 
 	void App::RecreateSwapChain()
 	{
-		int width = 0, height = 0;
-		glfwGetFramebufferSize(_window, &width, &height);
-		while (width == 0 || height == 0) {
-			glfwGetFramebufferSize(_window, &width, &height);
-			glfwWaitEvents();
-		}
-
 		VkResult result = vkDeviceWaitIdle(_logicalDevice);
 		if (result != VK_SUCCESS)
 		{

@@ -92,6 +92,7 @@ namespace HelloVulkan
 
 	public:
 		inline void SetResized(bool resized) { _framebufferResized = resized; }
+		inline void SetDoRender(bool doRender) { _doRender = doRender; }
 		void OnScroll(double yoffset);
 
 		inline const Engine::Camera& GetCamera() const { return _camera; }
@@ -102,6 +103,9 @@ namespace HelloVulkan
 		void InitVulkan();
 		void Loop();
 		void Clean();
+
+		void OnUpdate(float dt);
+		void OnRender();
 
 		void CreateInstance();
 		void CreateMessenger();
@@ -154,6 +158,8 @@ namespace HelloVulkan
 		void EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer);
 
 	private:
+		bool _doRender = true;
+
 		GLFWwindow* _window = nullptr;
 		VkInstance _instance = VK_NULL_HANDLE;
 		VkDebugUtilsMessengerEXT _messenger = VK_NULL_HANDLE;
@@ -210,8 +216,9 @@ namespace HelloVulkan
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
 
-		float deltaTime = 0.0f;
-		float lastFrame = 0.0f;
+		float _deltaTime = 0.0f;
+		float _lastFrame = 0.0f;
+		double _fps = 0.0f;
 		Engine::Camera _camera;
 	};
 }

@@ -131,6 +131,7 @@
     <ClCompile Include="vendor\stb\stb_image.cpp" />
     <ClCompile Include="src\VulkanLearn.cpp" />
     <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp" />
+    <ClCompile Include="vendor\vk_boostrap\VkBootstrap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Engine\Camera.hpp" />

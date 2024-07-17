@@ -30,6 +30,9 @@
     <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="vendor\vk_boostrap\VkBootstrap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Engine\Camera.hpp">

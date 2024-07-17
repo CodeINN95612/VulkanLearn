@@ -37,22 +37,23 @@ namespace Engine
 		_fov -= (float)yOffset;
 		if (_fov < 1.0f)
 			_fov = 1.0f;
-		if (_fov > 45.0f)
-			_fov = 45.0f;
+		if (_fov > MAX_FOV)
+			_fov = MAX_FOV;
 	}
 
-	void Camera::OnMouseMove(float xOffset, float yOffset)
-	{
-		_yaw += xOffset * _sensitivity;
-		_pitch += yOffset * _sensitivity;
+    void Camera::OnMouseMove(float xOffset, float yOffset)
+    {
+		float sensitivity = _sensitivity * SENSITIVITY * _fov / MAX_FOV;
+        _yaw += xOffset * sensitivity;
+        _pitch += yOffset * sensitivity;
 
-		if (_pitch > 89.0f)
-			_pitch = 89.0f;
-		if (_pitch < -89.0f)
-			_pitch = -89.0f;
+        if (_pitch > 89.0f)
+            _pitch = 89.0f;
+        if (_pitch < -89.0f)
+            _pitch = -89.0f;
 
-		UpdateCameraVectors();
-	}
+        UpdateCameraVectors();
+    }
 
 	void Camera::Resize(uint32_t width, uint32_t height)
 	{

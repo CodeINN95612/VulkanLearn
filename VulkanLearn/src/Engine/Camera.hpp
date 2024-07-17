@@ -22,6 +22,10 @@ namespace Engine
 		glm::mat4 GetProjectionMatrix() const;
 
 	private:
+		inline static const float MAX_FOV = 45.0f;
+		inline static const float SENSITIVITY = 0.1f;
+
+	private:
 		uint32_t _width;
 		uint32_t _height;
 
@@ -34,7 +38,7 @@ namespace Engine
 		float _pitch = 0.0f;
 
 		float _speed = 10.0f;
-		float _sensitivity = 0.1f;
+		float _sensitivity = 1.0f;
 
 	private:
 		void UpdateCameraVectors();
