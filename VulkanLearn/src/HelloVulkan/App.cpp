@@ -109,11 +109,7 @@ namespace HelloVulkan
 		0, 1, 2, 2, 3, 0,
 		4, 5, 6, 6, 7, 4
 	};*/
-	
-	static SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
-	static VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-	static VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-	static VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
+
 	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice);
 	bool hasStencilComponent(VkFormat format);
 
@@ -365,7 +361,6 @@ namespace HelloVulkan
 		CreateDescriptorSets();
 		CreateSwapChain();
 		CreateDepthResources();
-		CreateImageViews();
 		CreateRenderPass();
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
@@ -378,77 +373,15 @@ namespace HelloVulkan
 
 	void App::CreateSwapChain()
 	{
-		spdlog::info("Inicializando SwapChain");
+		int width, height;
+		glfwGetFramebufferSize(_window, &width, &height);
 
-		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(_physicalDevice, _surface);
-
-		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities, _window);
-
-		uint32_t imageCount = 3;
-		if (swapChainSupport.capabilities.maxImageCount != 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
-			imageCount = swapChainSupport.capabilities.maxImageCount;
-		}
-
-		VkSwapchainCreateInfoKHR createInfo = 
-		{
-			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-			.surface = _surface,
-			.minImageCount = imageCount,
-			.imageFormat = surfaceFormat.format,
-			.imageColorSpace = surfaceFormat.colorSpace,
-			.imageExtent = extent,
-			.imageArrayLayers = 1,
-			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		};
-
-		uint32_t queueFamilyIndices[] = { _graphicsQueueFamilyIndex, _presentQueueFamilyIndex };
-
-		if (_graphicsQueueFamilyIndex != _presentQueueFamilyIndex) {
-			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-			createInfo.queueFamilyIndexCount = 2;
-			createInfo.pQueueFamilyIndices = queueFamilyIndices;
-		}
-		else {
-			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			createInfo.queueFamilyIndexCount = 0;
-			createInfo.pQueueFamilyIndices = nullptr;
-		}
-
-		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
-
-		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode = presentMode;
-		createInfo.clipped = VK_TRUE;
-
-		createInfo.oldSwapchain = VK_NULL_HANDLE;
-
-		VK_CHECK(vkCreateSwapchainKHR(_logicalDevice, &createInfo, nullptr, &_swapChain));
-
-		VK_CHECK(vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, nullptr));
-
-		_swapChainImages.resize(imageCount);
-		VK_CHECK(vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, _swapChainImages.data()));
-
-		_swapChainImageFormat = surfaceFormat.format;
-		_swapChainExtent = extent;
-
-		spdlog::info("Inicializacion del SwapChain exitosa");
-	}
-
-	void App::CreateImageViews()
-	{
-		spdlog::info("Inicializando Vistas a imagen");
-
-		_swapChainImageViews.resize(_swapChainImages.size());
-
-		for (size_t i = 0; i < _swapChainImages.size(); i++) 
-		{
-			_swapChainImageViews[i] = CreateImageView(_swapChainImages[i], _swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
-		}
-
-		spdlog::info("Inicializacion de Vistas a imagen exitosa");
+		auto data = Vulkan::boostrapSwapchain(width, height, _physicalDevice, _logicalDevice, _surface);
+		_swapChain = data.swapchain;
+		_swapChainImageFormat = data.imageFormat;
+		_swapChainExtent = data.extent;
+		_swapChainImages = data.images;
+		_swapChainImageViews = data.imageViews;
 	}
 
 	void App::CreateRenderPass()
@@ -817,7 +750,6 @@ namespace HelloVulkan
 		CleanUpSwapChain();
 
 		CreateSwapChain();
-		CreateImageViews();
 		CreateDepthResources();
 		CreateFramebuffers();
 	}
@@ -1673,75 +1605,6 @@ namespace HelloVulkan
 		VK_CHECK(vkQueueWaitIdle(_graphicsQueue));
 
 		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
-	}
-
-	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface)
-	{
-		SwapChainSupportDetails details;
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
-
-		uint32_t formatCount = 0;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-
-		if (formatCount != 0) {
-			details.formats.resize(formatCount);
-			vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
-		}
-
-		uint32_t presentModeCount;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-
-		if (presentModeCount != 0) {
-			details.presentModes.resize(presentModeCount);
-			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
-		}
-
-		return details;
-	}
-
-	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
-	{
-		for (const auto& availableFormat : availableFormats) {
-			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-				return availableFormat;
-			}
-		}
-
-		return availableFormats[0];
-	}
-
-	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes)
-	{
-		for (const auto& availablePresentMode : availablePresentModes) {
-			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-				return availablePresentMode;
-			}
-		}
-
-		return VK_PRESENT_MODE_FIFO_KHR;
-	}
-
-	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window)
-	{
-		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) 
-		{
-			return capabilities.currentExtent;
-		}
-		else 
-		{
-			int width, height;
-			glfwGetFramebufferSize(window, &width, &height);
-
-			VkExtent2D actualExtent = {
-				static_cast<uint32_t>(width),
-				static_cast<uint32_t>(height)
-			};
-
-			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-
-			return actualExtent;
-		}
 	}
 
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice)

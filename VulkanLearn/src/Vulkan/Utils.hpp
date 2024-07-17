@@ -103,11 +103,59 @@ namespace Vulkan
 		};
 	}
 
-	void cleanBoostrapedData(const BoostrapData& data)
+	inline static void cleanBoostrapedData(const BoostrapData& data)
 	{
 		vkDestroyDevice(data.logicalDevice, nullptr);
 		vkDestroySurfaceKHR(data.instance, data.surface, nullptr);
 		vkb::destroy_debug_utils_messenger(data.instance, data.debugMessenger, nullptr);
 		vkDestroyInstance(data.instance, nullptr);
+	}
+
+	
+	struct BoostrapSwapchainData
+	{
+		VkSwapchainKHR swapchain;
+		VkFormat imageFormat;
+		VkExtent2D extent;
+		std::vector<VkImage> images;
+		std::vector<VkImageView> imageViews;
+	};
+
+	inline static BoostrapSwapchainData boostrapSwapchain(
+		uint32_t width,
+		uint32_t height,
+		VkPhysicalDevice physicalDevice,
+		VkDevice logicalDevice,
+		VkSurfaceKHR surface)
+	{
+		vkb::SwapchainBuilder swapchainBuilder{ physicalDevice, logicalDevice, surface };
+
+		VkSurfaceFormatKHR desiredFormat
+		{
+			.format = VK_FORMAT_B8G8R8A8_SRGB,
+			.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+		};
+
+		auto swapchain_ret = swapchainBuilder
+			.set_desired_format(desiredFormat)
+			.set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+			.set_desired_min_image_count(3)
+			.set_desired_extent(width, height)
+			.build();
+
+		vkb::Swapchain vkb_swapchain = swapchain_ret.value();
+		VkSwapchainKHR swapchain = vkb_swapchain.swapchain;
+
+		std::vector<VkImage> images = vkb_swapchain.get_images().value();
+		std::vector<VkImageView> imageViews = vkb_swapchain.get_image_views().value();
+
+		return BoostrapSwapchainData
+		{
+			.swapchain = swapchain,
+			.imageFormat = vkb_swapchain.image_format,
+			.extent = vkb_swapchain.extent,
+			.images = images,
+			.imageViews = imageViews
+		};
 	}
 }
