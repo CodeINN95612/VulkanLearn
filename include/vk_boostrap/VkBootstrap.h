@@ -134,7 +134,7 @@ template <typename T> class Result {
     // std::error_code associated with the error
     std::error_code error() const { assert (!m_init); return m_error.type; }
     // optional VkResult that could of been produced due to the error
-    VkResult vk_result() const { assert (!m_init); return m_error.vk_result; }
+    VkResult vk_result() const { assert(!m_init); return m_error.vk_result; }
     // Returns the struct that holds the std::error_code and VkResult
     Error full_error() const { assert (!m_init); return m_error; }
     // clang-format on

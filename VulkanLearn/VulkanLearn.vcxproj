@@ -137,6 +137,8 @@
     <ClInclude Include="src\Engine\Camera.hpp" />
     <ClInclude Include="src\Engine\InputState.hpp" />
     <ClInclude Include="src\HelloVulkan\App.hpp" />
+    <ClInclude Include="src\Vulkan\Types.hpp" />
+    <ClInclude Include="src\Vulkan\Utils.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\shader.frag" />

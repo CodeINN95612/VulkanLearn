@@ -15,7 +15,9 @@
 #include <stb/stb_image.h>
 
 #include <tinyobjloader/tiny_obj_loader.h>
+
 #include "../Engine/InputState.hpp"
+#include "../Vulkan/Utils.hpp"
 
 
 namespace std {
@@ -72,17 +74,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 
 namespace HelloVulkan
 {
-	struct QueueFamilyIndices
-	{
-		std::optional<uint32_t> graphicsFamily;
-		std::optional<uint32_t> presentFamily;
-
-		inline bool IsComplete() const {
-			return graphicsFamily.has_value()
-				&& presentFamily.has_value();
-		}
-	};
-
 	struct SwapChainSupportDetails 
 	{
 		VkSurfaceCapabilitiesKHR capabilities;
@@ -118,12 +109,7 @@ namespace HelloVulkan
 		0, 1, 2, 2, 3, 0,
 		4, 5, 6, 6, 7, 4
 	};*/
-
-	static void checkRequiredExtensions(const std::vector<const char*>& requiredExtensions);
-	static void checkRequiredLayers(const std::vector<const char*>& requiredLayers);
-	static bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
-	static QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
-	static bool areExtensionsSupported(VkPhysicalDevice device);
+	
 	static SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
 	static VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
 	static VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
@@ -245,11 +231,7 @@ namespace HelloVulkan
             }
         }
 
-        VkResult result = vkDeviceWaitIdle(_logicalDevice);
-        if (result != VK_SUCCESS)
-        {
-            throw std::exception("Error al esperar para el dispositivo al finalizar");
-        }
+        VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
     }
 
 	void App::Clean()
@@ -292,18 +274,21 @@ namespace HelloVulkan
 
 		vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
 
-		vkDestroyDevice(_logicalDevice, nullptr);
-
-		vkDestroySurfaceKHR(_instance, _surface, nullptr);
-
-		DestroyMessenger();
-
-		vkDestroyInstance(_instance, nullptr);
+		Vulkan::BoostrapData data = {
+			.instance = _instance,
+			.debugMessenger = _messenger,
+			.surface = _surface,
+			.physicalDevice = _physicalDevice,
+			.logicalDevice = _logicalDevice,
+			.graphicsQueue = _graphicsQueue,
+			.graphicsQueueFamilyIndex = _graphicsQueueFamilyIndex,
+			.presentQueue = _presentQueue,
+			.presentQueueFamilyIndex = _presentQueueFamilyIndex
+		};
+		Vulkan::cleanBoostrapedData(data);
 
 		glfwDestroyWindow(_window);
 		glfwTerminate();
-
-		spdlog::info("Limpiada exitosa");
 	}
 
 	void App::OnUpdate(float dt)
@@ -359,11 +344,17 @@ namespace HelloVulkan
 
 	void App::InitVulkan()
 	{
-		CreateInstance();
-		CreateMessenger();
-		CreateSurface();
-		PickPhysicalDevice();
-		CreateLogicalDevice();
+		auto data = Vulkan::boostrapVulkan(_window, messageCallback, true);
+		_instance = data.instance;
+		_messenger = data.debugMessenger;
+		_surface = data.surface;
+		_physicalDevice = data.physicalDevice;
+		_logicalDevice = data.logicalDevice;
+		_graphicsQueue = data.graphicsQueue;
+		_graphicsQueueFamilyIndex = data.graphicsQueueFamilyIndex;
+		_presentQueue = data.presentQueue;
+		_presentQueueFamilyIndex = data.presentQueueFamilyIndex;
+
 		CreateCommandPool();
 		CreateTextureImage(TEXTURE_PATH.c_str());
 		CreateTextureImageView();
@@ -383,220 +374,6 @@ namespace HelloVulkan
 		CreateIndexBuffer();
 		CreateCommandBuffers();
 		CreateSyncObjects();
-	}
-
-	void App::CreateInstance()
-	{
-		spdlog::info("Inicializando Instancia");
-
-		VkApplicationInfo appInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-			.pApplicationName = "Hello Vulkan",
-			.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-			.pEngineName = "No Engine",
-			.engineVersion = VK_MAKE_VERSION(1, 0, 0),
-			.apiVersion = VK_API_VERSION_1_0,
-		};
-
-		std::vector<const char*> requiredExtensions = 
-		{
-			VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-		};
-
-		uint32_t glfwExtensionCount = 0;
-		const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-		
-		for (uint32_t i = 0; i < glfwExtensionCount; i++)
-		{
-			requiredExtensions.push_back(glfwExtensions[i]);
-		}
-
-		checkRequiredExtensions(requiredExtensions);
-
-		checkRequiredLayers(requiredLayers);
-
-		VkInstanceCreateInfo createInfo = 
-		{
-			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-			.pApplicationInfo = &appInfo,
-			.enabledLayerCount = (uint32_t)requiredLayers.size(),
-			.ppEnabledLayerNames = requiredLayers.data(),
-			.enabledExtensionCount = (uint32_t)requiredExtensions.size(),
-			.ppEnabledExtensionNames = requiredExtensions.data(),
-		};
-
-		VkResult result = vkCreateInstance(&createInfo, nullptr, &_instance);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al crear la instancia");
-		}
-
-		spdlog::info("Inicializacion de Instancia exitosa");
-
-	}
-
-	void App::CreateMessenger()
-	{
-		spdlog::info("Inicializando Sistema de mensajeria");
-
-		VkDebugUtilsMessengerCreateInfoEXT createInfo = 
-		{
-			.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-			.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-				| VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-				| VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
-				| VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT 
-				,
-			.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT 
-				| VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT 
-				| VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
-				| VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT,
-			.pfnUserCallback = messageCallback,
-			.pUserData = nullptr,
-		};
-
-		auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(_instance, "vkCreateDebugUtilsMessengerEXT");
-		
-		if (!vkCreateDebugUtilsMessengerEXT)
-		{
-			throw std::exception("Error al crear la funcion vkCreateDebugUtilsMessengerEXT");
-		}
-		
-		VkResult result = vkCreateDebugUtilsMessengerEXT(_instance, &createInfo, nullptr, &_messenger);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al crear el sistema de mensajeria");
-		}
-
-		spdlog::info("Inicializacion de Sitema de mensajeria exitosa");
-	}
-
-	void App::DestroyMessenger()
-	{
-		auto vkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(_instance, "vkDestroyDebugUtilsMessengerEXT");
-		if (vkDestroyDebugUtilsMessengerEXT != nullptr) {
-			vkDestroyDebugUtilsMessengerEXT(_instance, _messenger, nullptr);
-		}
-	}
-
-	void App::PickPhysicalDevice()
-	{
-		spdlog::info("Escogiendo Dispositivo fisico");
-
-		uint32_t deviceCount = 0;
-		VkResult result = vkEnumeratePhysicalDevices(_instance, &deviceCount, nullptr);
-		if (result != VK_SUCCESS || deviceCount == 0)
-		{
-			throw std::exception("vkEnumeratePhysicalDevices fallo su primera llamada");
-		}
-
-		std::vector<VkPhysicalDevice> devices(deviceCount);
-		result = vkEnumeratePhysicalDevices(_instance, &deviceCount, devices.data());
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("vkEnumeratePhysicalDevices fallo su segunda llamada");
-		}
-
-		VkPhysicalDevice suitableDevice = VK_NULL_HANDLE;
-		for (uint32_t i = 0; i < deviceCount; i++)
-		{
-			if (isDeviceSuitable(devices[i], _surface))
-			{
-				suitableDevice = devices[i];
-				break;
-			}
-		}
-
-		if (!suitableDevice) 
-		{
-			throw std::exception("No se encontro un dispositivo fisico valido");
-		}
-
-		_physicalDevice = suitableDevice;
-
-		spdlog::info("Escogida de Dispositivo fisico exitosa");
-	}
-
-	void App::CreateLogicalDevice()
-	{
-		spdlog::info("Inicializando Dispositivo logico");
-
-		QueueFamilyIndices indices = findQueueFamilies(_physicalDevice, _surface);
-
-		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::set<uint32_t> uniqueQueueFamilies = 
-		{ 
-			indices.graphicsFamily.value(), 
-			indices.presentFamily.value() 
-		};
-
-		float queuePriority = 1.0f;
-		for (uint32_t queueFamily : uniqueQueueFamilies) {
-			VkDeviceQueueCreateInfo queueCreateInfo = 
-			{
-				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-				.queueFamilyIndex = queueFamily,
-				.queueCount = 1,
-				.pQueuePriorities = &queuePriority,
-			};
-			queueCreateInfos.push_back(queueCreateInfo);
-		}
-
-		VkPhysicalDeviceFeatures deviceFeatures{};
-		deviceFeatures.samplerAnisotropy = VK_TRUE;
-
-		VkDeviceCreateInfo deviceCreateInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-			.queueCreateInfoCount = (uint32_t)queueCreateInfos.size(),
-			.pQueueCreateInfos = queueCreateInfos.data(),
-			.enabledLayerCount = (uint32_t)requiredLayers.size(),
-			.ppEnabledLayerNames = requiredLayers.data(),
-			.enabledExtensionCount = (uint32_t)requiredDeviceExtensions.size(),
-			.ppEnabledExtensionNames = requiredDeviceExtensions.data(),
-			.pEnabledFeatures = &deviceFeatures,
-		};
-
-		VkResult result = vkCreateDevice(_physicalDevice, &deviceCreateInfo, nullptr, &_logicalDevice);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al crear el dispositivo logico");
-		}
-
-		vkGetDeviceQueue(_logicalDevice, indices.graphicsFamily.value(), 0, &_graphicsQueue);
-		if (_graphicsQueue == VK_NULL_HANDLE)
-		{
-			throw std::exception("Error al obtener las colas de graficos");
-		}
-
-		vkGetDeviceQueue(_logicalDevice, indices.presentFamily.value(), 0, &_presentQueue);
-		if (_presentQueue == VK_NULL_HANDLE)
-		{
-			throw std::exception("Error al obtener las colas de presentacion");
-		}
-
-		spdlog::info("Inicializacion del Dispositivo logico exitosa");
-	}
-
-	void App::CreateSurface()
-	{
-		spdlog::info("Inicializando Superficie");
-
-		VkWin32SurfaceCreateInfoKHR createInfo = 
-		{
-			.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-			.hinstance = GetModuleHandle(nullptr),
-			.hwnd = glfwGetWin32Window(_window),
-		};
-
-		VkResult result = vkCreateWin32SurfaceKHR(_instance, &createInfo, nullptr, &_surface);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al crear la superficie");
-		}
-
-		spdlog::info("Inicializacion de Superficie exitosa");
 	}
 
 	void App::CreateSwapChain()
@@ -626,10 +403,9 @@ namespace HelloVulkan
 			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		};
 
-		QueueFamilyIndices indices = findQueueFamilies(_physicalDevice, _surface);
-		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+		uint32_t queueFamilyIndices[] = { _graphicsQueueFamilyIndex, _presentQueueFamilyIndex };
 
-		if (indices.graphicsFamily != indices.presentFamily) {
+		if (_graphicsQueueFamilyIndex != _presentQueueFamilyIndex) {
 			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			createInfo.queueFamilyIndexCount = 2;
 			createInfo.pQueueFamilyIndices = queueFamilyIndices;
@@ -648,24 +424,12 @@ namespace HelloVulkan
 
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-		VkResult result = vkCreateSwapchainKHR(_logicalDevice, &createInfo, nullptr, &_swapChain);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el SwapChain");
-		}
+		VK_CHECK(vkCreateSwapchainKHR(_logicalDevice, &createInfo, nullptr, &_swapChain));
 
-		result = vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, nullptr);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible obtener imagenes en la primera llamada");
-		}
+		VK_CHECK(vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, nullptr));
 
 		_swapChainImages.resize(imageCount);
-		result = vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, _swapChainImages.data());
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible obtener imagenes en la segunda llamada");
-		}
+		VK_CHECK(vkGetSwapchainImagesKHR(_logicalDevice, _swapChain, &imageCount, _swapChainImages.data()));
 
 		_swapChainImageFormat = surfaceFormat.format;
 		_swapChainExtent = extent;
@@ -758,12 +522,7 @@ namespace HelloVulkan
 			.pDependencies = &dependency,
 		};
 
-		VkResult result = vkCreateRenderPass(_logicalDevice, &renderPassInfo, nullptr, &_renderPass);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el Render Pass");
-		}
-
+		VK_CHECK(vkCreateRenderPass(_logicalDevice, &renderPassInfo, nullptr, &_renderPass));
 		spdlog::info("Inicializacion de RenderPass exitosa");
 	}
 
@@ -912,11 +671,7 @@ namespace HelloVulkan
 			.pPushConstantRanges = nullptr,
 		};
 
-		VkResult result = vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el PipelineLayout");
-		}
+		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
 
 		VkPipelineDepthStencilStateCreateInfo depthStencil
 		{
@@ -952,11 +707,7 @@ namespace HelloVulkan
 			.basePipelineIndex = -1,
 		};
 
-		result = vkCreateGraphicsPipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear la Graphics pipeline");
-		}
+		VK_CHECK(vkCreateGraphicsPipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline));
 
 		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
 		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
@@ -988,11 +739,7 @@ namespace HelloVulkan
 				.layers = 1,
 			};
 
-			VkResult result = vkCreateFramebuffer(_logicalDevice, &framebufferInfo, nullptr, &_framebuffers[i]);
-
-			if (result != VK_SUCCESS) {
-				throw std::exception("No fue posible crear el framebuffer");
-			}
+			VK_CHECK(vkCreateFramebuffer(_logicalDevice, &framebufferInfo, nullptr, &_framebuffers[i]));
 		}
 
 		spdlog::info("Inicializacion de Framebuffers exitosa");
@@ -1002,19 +749,14 @@ namespace HelloVulkan
 	{
 		spdlog::info("Inicializando Command Pool");
 
-		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(_physicalDevice, _surface);
-
 		VkCommandPoolCreateInfo poolInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
+			.queueFamilyIndex = _graphicsQueueFamilyIndex,
 		};
 
-		VkResult result = vkCreateCommandPool(_logicalDevice, &poolInfo, nullptr, &_commandPool);
-		if (result != VK_SUCCESS) {
-			throw std::exception("No fue posible crear el Command Pool");
-		}
+		VK_CHECK(vkCreateCommandPool(_logicalDevice, &poolInfo, nullptr, &_commandPool));
 
 		spdlog::info("Inicializacion de Command Pool exitosa");
 	}
@@ -1032,10 +774,7 @@ namespace HelloVulkan
 			.commandBufferCount = (uint32_t)_commandBuffers.size(),
 		};
 
-		VkResult result = vkAllocateCommandBuffers(_logicalDevice, &allocInfo, _commandBuffers.data());
-		if (result != VK_SUCCESS) {
-			throw std::exception("No fue posible crear el Command Buffer");
-		}
+		VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &allocInfo, _commandBuffers.data()));
 
 		spdlog::info("Inicializacion de Command Buffer exitosa");
 	}
@@ -1061,20 +800,11 @@ namespace HelloVulkan
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			VkResult result = vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
-			if (result != VK_SUCCESS) {
-				throw std::exception("No fue posible crear el Semaforo de imagen disponible");
-			}
+			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]));
 
-			result = vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
-			if (result != VK_SUCCESS) {
-				throw std::exception("No fue posible crear el Semaforo de renderizacion finalizada");
-			}
+			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]));
 
-			result = vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_inFlightFences[i]);
-			if (result != VK_SUCCESS) {
-				throw std::exception("No fue posible crear el Fence");
-			}
+			VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_inFlightFences[i]));
 		}
 		
 		spdlog::info("Inicializacion de Objetos de sincronizacion exitosa");
@@ -1082,11 +812,7 @@ namespace HelloVulkan
 
 	void App::RecreateSwapChain()
 	{
-		VkResult result = vkDeviceWaitIdle(_logicalDevice);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("Error al esperar para el dispositivo al recrear el swapchain");
-		}
+		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
 
 		CleanUpSwapChain();
 
@@ -1129,11 +855,7 @@ namespace HelloVulkan
 			stagingBufferMemory);
 
 		void* data;
-		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible mapear la memoria del Buffer de vertices");
-		}
+		VK_CHECK(vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data));
 
 		memcpy(data, _vertices.data(), size);
 
@@ -1170,11 +892,7 @@ namespace HelloVulkan
 			stagingBufferMemory);
 
 		void* data;
-		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible mapear la memoria del Buffer de Indices");
-		}
+		VK_CHECK(vkMapMemory(_logicalDevice, stagingBufferMemory, 0, size, 0, &data));
 
 		memcpy(data, _indices.data(), size);
 
@@ -1226,11 +944,7 @@ namespace HelloVulkan
 			.pBindings = bindings.data(),
 		};
 
-		VkResult result = vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_descriptorSetLayout);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el Descriptor Set Layout");
-		}
+		VK_CHECK(vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_descriptorSetLayout));
 
 		spdlog::info("Inicializacion de Descriptor Set Layout exitosa");
 	}
@@ -1251,11 +965,7 @@ namespace HelloVulkan
 				_uniformBuffers[i], 
 				_uniformBuffersMemory[i]);
 
-			VkResult result = vkMapMemory(_logicalDevice, _uniformBuffersMemory[i], 0, size, 0, &_uniformBuffersMapped[i]);
-			if (result != VK_SUCCESS) 
-			{
-				throw std::exception("No fue posible mapear la memoria del Uniform Buffer");
-			}
+			VK_CHECK(vkMapMemory(_logicalDevice, _uniformBuffersMemory[i], 0, size, 0, &_uniformBuffersMapped[i]));
 		}
 	}
 
@@ -1285,11 +995,7 @@ namespace HelloVulkan
 			.pPoolSizes = poolSizes.data(),
 		};
 
-		VkResult result = vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el Descriptor Pool");
-		}
+		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool));
 
 		spdlog::info("Inicializacion de Descriptor Pool exitosa");
 	}
@@ -1309,11 +1015,7 @@ namespace HelloVulkan
 		};
 
 		_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-		VkResult result = vkAllocateDescriptorSets(_logicalDevice, &allocInfo, _descriptorSets.data());
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible asignar los Descriptor Sets");
-		}
+		VK_CHECK(vkAllocateDescriptorSets(_logicalDevice, &allocInfo, _descriptorSets.data()));
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
@@ -1384,11 +1086,7 @@ namespace HelloVulkan
 			stagingBufferMemory);
 
 		void* data;
-		VkResult result = vkMapMemory(_logicalDevice, stagingBufferMemory, 0, imageSize, 0, &data);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible mapear la memoria de la imagen");
-		}
+		VK_CHECK(vkMapMemory(_logicalDevice, stagingBufferMemory, 0, imageSize, 0, &data));
 
 		memcpy(data, pixels, static_cast<size_t>(imageSize));
 
@@ -1452,11 +1150,7 @@ namespace HelloVulkan
 			.unnormalizedCoordinates = VK_FALSE,
 		};
 
-		VkResult result = vkCreateSampler(_logicalDevice, &samplerInfo, nullptr, &_textureSampler);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el Muestreador de Textura");
-		}
+		VK_CHECK(vkCreateSampler(_logicalDevice, &samplerInfo, nullptr, &_textureSampler));
 
 		spdlog::info("Inicializacion de Muestreador de Textura exitosa");
 	}
@@ -1525,14 +1219,10 @@ namespace HelloVulkan
 
 	void App::DrawFrame()
 	{
-		VkResult result = vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible esperar por el fence");
-		}
+		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX));
 
 		uint32_t imageIndex;
-		result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 			RecreateSwapChain();
 			return;
@@ -1541,11 +1231,7 @@ namespace HelloVulkan
 			throw std::exception("No fue posible obtener la imagen");
 		}
 
-		result = vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible resetear las fences");
-		}
+		VK_CHECK(vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]));
 
 		vkResetCommandBuffer(_commandBuffers[_currentFrame], 0);
 
@@ -1566,11 +1252,7 @@ namespace HelloVulkan
 			.pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],
 		};
 
-		result = vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible subir comandos en la cola de graficos");
-		}
+		VK_CHECK(vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]));
 
 		VkSwapchainKHR swapChains[] = { _swapChain };
 		VkPresentInfoKHR presentInfo
@@ -1608,11 +1290,7 @@ namespace HelloVulkan
 		};
 
 		VkShaderModule shaderModule = VK_NULL_HANDLE;
-		VkResult result = vkCreateShaderModule(_logicalDevice, &createInfo, nullptr, &shaderModule);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear los modulos de Shader");
-		}
+		VK_CHECK(vkCreateShaderModule(_logicalDevice, &createInfo, nullptr, &shaderModule));
 
 		spdlog::info("Inicializado Modulo shader correctamente");
 
@@ -1628,11 +1306,7 @@ namespace HelloVulkan
 			.pInheritanceInfo = nullptr,
 		};
 
-		VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible empezar el grabado de comandos");
-		}
+		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
 		std::array<VkClearValue, 2> clearValues{};
 		clearValues[0].color = { {0.005f, 0.005f, 0.005f, 1.0f} };
@@ -1694,11 +1368,7 @@ namespace HelloVulkan
 
 		vkCmdEndRenderPass(commandBuffer);
 
-		result = vkEndCommandBuffer(commandBuffer);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible finalizar el grabado de comandos");
-		}
+		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
 
 	void App::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
@@ -1713,11 +1383,7 @@ namespace HelloVulkan
 			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		};
 
-		VkResult result = vkCreateBuffer(_logicalDevice, &bufferInfo, nullptr, &buffer);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear el Buffer");
-		}
+		VK_CHECK(vkCreateBuffer(_logicalDevice, &bufferInfo, nullptr, &buffer));
 
 		VkMemoryRequirements memRequirements;
 		vkGetBufferMemoryRequirements(_logicalDevice, buffer, &memRequirements);
@@ -1729,17 +1395,10 @@ namespace HelloVulkan
 			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties, _physicalDevice)
 		};
 
-		result = vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &bufferMemory);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible asignar memoria al Buffer");
-		}
+		VK_CHECK(vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &bufferMemory));
 
-		result = vkBindBufferMemory(_logicalDevice, buffer, bufferMemory, 0);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible asignar memoria al Buffer con la memoria de _vertices");
-		}
+		VK_CHECK(vkBindBufferMemory(_logicalDevice, buffer, bufferMemory, 0));
+
 		spdlog::info("Inicializacion de Buffer exitosa");
 	}
 
@@ -1765,11 +1424,7 @@ namespace HelloVulkan
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		};
 
-		VkResult result = vkCreateImage(_logicalDevice, &imageInfo, nullptr, &params.image);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear la imagen de textura");
-		}
+		VK_CHECK(vkCreateImage(_logicalDevice, &imageInfo, nullptr, &params.image));
 
 		VkMemoryRequirements memRequirements;
 		vkGetImageMemoryRequirements(_logicalDevice, params.image, &memRequirements);
@@ -1781,17 +1436,9 @@ namespace HelloVulkan
 			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, params.properties, _physicalDevice),
 		};
 
-		result = vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &params.imageMemory);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible asignar memoria a la imagen de textura");
-		}
+		VK_CHECK(vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &params.imageMemory));
 
-		result = vkBindImageMemory(_logicalDevice, params.image, params.imageMemory, 0);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible asignar memoria a la imagen de textura en binding");
-		}
+		VK_CHECK(vkBindImageMemory(_logicalDevice, params.image, params.imageMemory, 0));
 	}
 
 	void App::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
@@ -1811,15 +1458,14 @@ namespace HelloVulkan
 
 	void App::UpdateUniformBuffer(size_t currentImage)
 	{
-		static double startTime = glfwGetTime();
-		double currentTime = glfwGetTime();
-		double deltaTime = currentTime - startTime;
-
-		_camera.Resize(_swapChainExtent.width, _swapChainExtent.height);
+		if (_framebufferResized)
+		{
+			_camera.Resize(_swapChainExtent.width, _swapChainExtent.height);
+		}
 
 		UniformBufferObject ubo
 		{
-			.model = glm::rotate(glm::mat4(1.0f), (float)deltaTime * glm::radians(00.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.model = glm::mat4(1.0f),
 			.view = _camera.GetViewMatrix(),
 			.proj = _camera.GetProjectionMatrix(),
 		};
@@ -1955,11 +1601,7 @@ namespace HelloVulkan
 		};
 
 		VkImageView imageView = VK_NULL_HANDLE;
-		VkResult result = vkCreateImageView(_logicalDevice, &viewInfo, nullptr, &imageView);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible crear la vista de la imagen de textura");
-		}
+		VK_CHECK(vkCreateImageView(_logicalDevice, &viewInfo, nullptr, &imageView));
 
 		return imageView;
 	}
@@ -2001,11 +1643,7 @@ namespace HelloVulkan
 		};
 
 		VkCommandBuffer commandBuffer;
-		VkResult result = vkAllocateCommandBuffers(_logicalDevice, &allocInfo, &commandBuffer);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue generar el command buffer para copiar memoria");
-		}
+		VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &allocInfo, &commandBuffer));
 
 		VkCommandBufferBeginInfo beginInfo
 		{
@@ -2013,11 +1651,7 @@ namespace HelloVulkan
 			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 		};
 
-		result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible empezar el grabado de comandos de copia de memoria");
-		}
+		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 		
 		return commandBuffer;
 	}
@@ -2025,11 +1659,7 @@ namespace HelloVulkan
 	void App::EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer)
 	{
 
-		VkResult result = vkEndCommandBuffer(commandBuffer);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible finalizar el grabado de comandos de copia de memoria");
-		}
+		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 
 		VkSubmitInfo submitInfo
 		{
@@ -2038,219 +1668,11 @@ namespace HelloVulkan
 			.pCommandBuffers = &commandBuffer,
 		};
 
-		result = vkQueueSubmit(_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible subir comandos de copia de memoria a la cola de graficos");
-		}
+		VK_CHECK(vkQueueSubmit(_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
 
-		result = vkQueueWaitIdle(_graphicsQueue);
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("No fue posible esperar a que la cola de graficos termine de copiar memoria");
-		}
+		VK_CHECK(vkQueueWaitIdle(_graphicsQueue));
 
 		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
-	}
-
-	void checkRequiredExtensions(const std::vector<const  char*>& requiredExtension)
-	{
-		uint32_t extensionCount = 0;
-		VkResult result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-		if (result != VK_SUCCESS || extensionCount == 0)
-		{
-			throw std::exception("vkEnumerateInstanceExtensionProperties fallo su primera llamada");
-		}
-
-		std::vector<VkExtensionProperties> extensions(extensionCount);
-		result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("vkEnumerateInstanceExtensionProperties fallo su segunda llamada");
-		}
-
-		spdlog::info("EXTENSIONES DISPONIBLES");
-		for (uint32_t i = 0; i < extensionCount; i++)
-		{
-			spdlog::info("\t- {0}", extensions[i].extensionName);
-		}
-
-		spdlog::info("EXTENSIONES REQUERIDAS");
-		for (uint32_t i = 0; i < requiredExtension.size(); i++)
-		{
-			spdlog::info("\t- {0}", requiredExtension[i]);
-
-			bool hasExtensions = false;
-			for (uint32_t j = 0; j < extensionCount; j++)
-			{
-				VkExtensionProperties& current = extensions[j];
-				if (strcmp(current.extensionName, requiredExtension[i]) == 0)
-				{
-					hasExtensions = true;
-					break;
-				}
-			}
-
-			if (!hasExtensions)
-			{
-				throw std::exception("No se encontraron todas las extensiones requeridas");
-			}
-		}
-	}
-
-	void checkRequiredLayers(const std::vector<const char*>& requiredLayers)
-	{
-		uint32_t layerCount = 0;
-		VkResult result = vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-		if (result != VK_SUCCESS || layerCount == 0)
-		{
-			throw std::exception("vkEnumerateInstanceLayerProperties fallo su primera llamad");
-		}
-
-		std::vector<VkLayerProperties> availableLayers(layerCount);
-		result = vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-		if (result != VK_SUCCESS)
-		{
-			throw std::exception("vkEnumerateInstanceLayerProperties fallo su segunda llamad");
-		}
-
-		spdlog::info("CAPAS DISPONIBLES");
-		for (uint32_t i = 0; i < layerCount; i++)
-		{
-			spdlog::info("\t- {0}", availableLayers[i].layerName);
-		}
-
-		spdlog::info("CAPAS REQUERIDAS");
-
-		for (uint32_t i = 0; i < requiredLayers.size(); i++)
-		{
-			spdlog::info("\t- {0}", requiredLayers[i]);
-
-			bool hasLayers = false;
-			for (uint32_t j = 0; j < layerCount; j++)
-			{
-				VkLayerProperties& current = availableLayers[j];
-				if (strcmp(current.layerName, requiredLayers[i]) == 0)
-				{
-					hasLayers = true;
-					break;
-				}
-			}
-
-			if (!hasLayers)
-			{
-				throw std::exception("No se encontraron todas las capas requeridas");
-			}
-		}
-	}
-
-	bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface)
-	{
-		VkPhysicalDeviceProperties deviceProperties;
-		vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-		VkPhysicalDeviceFeatures deviceFeatures;
-		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-		spdlog::info("Dispositivo fisico encontrado {0} {1}", deviceProperties.deviceID, deviceProperties.deviceName);
-
-		if (deviceProperties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-		{
-			return false;
-		}
-
-		auto queueFamilies = findQueueFamilies(device, surface);
-		if (!queueFamilies.IsComplete())
-		{
-			return false;
-		}
-
-		bool extensionSupported = areExtensionsSupported(device);
-		if (!extensionSupported)
-		{
-			return false;
-		}
-
-		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface);
-		bool swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
-		if (!swapChainAdequate)
-		{
-			return false;
-		}
-
-		if (!deviceFeatures.samplerAnisotropy)
-		{
-			return false;
-		}
-
-		spdlog::info("Dispositivo fisico escogido {0} {1}", deviceProperties.deviceID, deviceProperties.deviceName);
-		return true;
-	}
-
-	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
-	{
-		QueueFamilyIndices indices;
-
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
-		for (uint32_t i = 0; i < queueFamilyCount; i++) {
-			if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-				indices.graphicsFamily = i;
-			}
-
-			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-			if (presentSupport)
-			{
-				indices.presentFamily = i;
-			}
-
-			if (indices.IsComplete()) 
-			{
-				break;
-			}
-		}
-
-		return indices;
-	}
-
-	bool areExtensionsSupported(VkPhysicalDevice device)
-	{
-		uint32_t extensionCount = 0;
-		VkResult result = vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-		if (result != VK_SUCCESS || extensionCount == 0)
-		{
-			return false;
-		}
-
-		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
-		if (result != VK_SUCCESS)
-		{
-			return false;
-		}
-
-		/*spdlog::info("EXTENSIONES DE DISPOSITIVO DISPONIBLES");
-		for (uint32_t i = 0; i < extensionCount; i++)
-		{
-			spdlog::info("\t- {0}", availableExtensions[i].extensionName);
-		}*/
-
-		std::set<std::string> requiredExtensions(requiredDeviceExtensions.begin(), requiredDeviceExtensions.end());
-		for (uint32_t i = 0; i < extensionCount; i++) 
-		{
-			requiredExtensions.erase(availableExtensions[i].extensionName);
-			if (requiredExtensions.empty())
-			{
-				break;
-			}
-		}
-
-		return requiredExtensions.empty();
 	}
 
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface)

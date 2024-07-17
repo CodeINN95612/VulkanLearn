@@ -107,12 +107,6 @@ namespace HelloVulkan
 		void OnUpdate(float dt);
 		void OnRender();
 
-		void CreateInstance();
-		void CreateMessenger();
-		void DestroyMessenger();
-		void PickPhysicalDevice();
-		void CreateLogicalDevice();
-		void CreateSurface();
 		void CreateSwapChain();
 		void CreateImageViews();
 		void CreateRenderPass();
@@ -168,7 +162,9 @@ namespace HelloVulkan
 		VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
 		VkDevice _logicalDevice = VK_NULL_HANDLE;
 		VkQueue _graphicsQueue = VK_NULL_HANDLE;
+		uint32_t _graphicsQueueFamilyIndex = 0;
 		VkQueue _presentQueue = VK_NULL_HANDLE;
+		uint32_t _presentQueueFamilyIndex = 0;
 
 		VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
 		VkFormat _swapChainImageFormat = VK_FORMAT_UNDEFINED;
