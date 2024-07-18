@@ -141,6 +141,7 @@ namespace Vulkan
 			.set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
 			.set_desired_min_image_count(3)
 			.set_desired_extent(width, height)
+			.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 			.build();
 
 		vkb::Swapchain vkb_swapchain = swapchain_ret.value();

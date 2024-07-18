@@ -134,8 +134,9 @@ namespace HelloVulkan
 		
 		void DrawFrame();
 
-		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 		void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 		void CreateImage(CreateImageParams params);
 		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);

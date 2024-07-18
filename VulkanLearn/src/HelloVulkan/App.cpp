@@ -77,6 +77,8 @@ namespace HelloVulkan
 	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice);
 	bool hasStencilComponent(VkFormat format);
 
+	void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout);
+
 	static std::vector<char> readFile(const std::string& filename);
 	
 
@@ -212,35 +214,9 @@ namespace HelloVulkan
 			vkDestroyFence(_logicalDevice, _inFlightFences[i], nullptr);
 		}
 
-		vkDestroyBuffer(_logicalDevice, _indexBuffer, nullptr);
-		vkFreeMemory(_logicalDevice, _indexBufferMemory, nullptr);
-
-		vkDestroyBuffer(_logicalDevice, _vertexBuffer, nullptr);
-		vkFreeMemory(_logicalDevice, _vertexBufferMemory, nullptr);
-
 		vkDestroyCommandPool(_logicalDevice, _commandPool, nullptr);
 
-		vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
-
-		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
-
-		vkDestroyRenderPass(_logicalDevice, _renderPass, nullptr);
-
 		CleanUpSwapChain();
-
-		vkDestroySampler(_logicalDevice, _textureSampler, nullptr);
-		vkDestroyImageView(_logicalDevice, _textureImageView, nullptr);
-		vkDestroyImage(_logicalDevice, _textureImage, nullptr);
-		vkFreeMemory(_logicalDevice, _textureImageMemory, nullptr);
-
-		vkDestroyDescriptorPool(_logicalDevice, _descriptorPool, nullptr);
-
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroyBuffer(_logicalDevice, _uniformBuffers[i], nullptr);
-			vkFreeMemory(_logicalDevice, _uniformBuffersMemory[i], nullptr);
-		}
-
-		vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
 
 		Vulkan::BoostrapData data = {
 			.instance = _instance,
@@ -324,21 +300,7 @@ namespace HelloVulkan
 		_presentQueueFamilyIndex = data.presentQueueFamilyIndex;
 
 		CreateCommandPool();
-		CreateTextureImage(TEXTURE_PATH.c_str());
-		CreateTextureImageView();
-		CreateTextureSampler();
-		CreateDescriptorSetLayout();
-		CreateUniformBuffers();
-		CreateDescriptorPool();
-		CreateDescriptorSets();
 		CreateSwapChain();
-		CreateDepthResources();
-		CreateRenderPass();
-		CreateGraphicsPipeline();
-		CreateFramebuffers();
-		LoadModel(MODEL_PATH.c_str());
-		CreateVertexBuffer();
-		CreateIndexBuffer();
 		CreateCommandBuffers();
 		CreateSyncObjects();
 	}
@@ -1134,26 +1096,52 @@ namespace HelloVulkan
 
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]));
 
-		vkResetCommandBuffer(_commandBuffers[_currentFrame], 0);
+		VkCommandBuffer currentCommandBuffer = _commandBuffers[_currentFrame];
 
-		RecordCommandBuffer(_commandBuffers[_currentFrame], imageIndex);
+		VK_CHECK(vkResetCommandBuffer(currentCommandBuffer, 0));
 
-		UpdateUniformBuffer(_currentFrame);
+		RecordCommandBuffer(currentCommandBuffer, imageIndex);
 
-		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-		VkSubmitInfo submitInfo
+		VkCommandBufferSubmitInfo commandBufferInfo
 		{
-			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],
-			.pWaitDstStageMask = waitStages,
-			.commandBufferCount = 1,
-			.pCommandBuffers = &_commandBuffers[_currentFrame],
-			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+			.pNext = nullptr,
+			.commandBuffer = currentCommandBuffer,
+			.deviceMask = 0,
 		};
 
-		VK_CHECK(vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]));
+		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+			.pNext = nullptr,
+			.semaphore = _imageAvailableSemaphores[_currentFrame],
+			.value = 1,
+			.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+			.deviceIndex = 0,
+		};
+
+		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+			.pNext = nullptr,
+			.semaphore = _renderFinishedSemaphores[_currentFrame],
+			.value = 1,
+			.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+			.deviceIndex = 0,
+		};
+
+		VkSubmitInfo2 submitInfo2
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+			.waitSemaphoreInfoCount = 1,
+			.pWaitSemaphoreInfos = &waitSemaphoreSubmitInfo,
+			.commandBufferInfoCount = 1,
+			.pCommandBufferInfos = &commandBufferInfo,
+			.signalSemaphoreInfoCount = 1,
+			.pSignalSemaphoreInfos = &signalSemaphoreSubmitInfo,
+		};
+
+		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, _inFlightFences[_currentFrame]));
 
 		VkSwapchainKHR swapChains[] = { _swapChain };
 		VkPresentInfoKHR presentInfo
@@ -1209,65 +1197,21 @@ namespace HelloVulkan
 
 		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-		std::array<VkClearValue, 2> clearValues{};
-		clearValues[0].color = { {0.005f, 0.005f, 0.005f, 1.0f} };
-		clearValues[1].depthStencil = { 1.0f, 0 };
+		transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-		VkRenderPassBeginInfo renderPassInfo
+		VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
+		VkImageSubresourceRange clearRange
 		{
-			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			.renderPass = _renderPass,
-			.framebuffer = _framebuffers[imageIndex],
-			.renderArea
-			{
-				.offset = {0, 0},
-				.extent = _swapChainExtent,
-			},
-			.clearValueCount = (uint32_t)clearValues.size(),
-			.pClearValues = clearValues.data(),
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
 		};
 
-		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdClearColorImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-
-		VkViewport viewport
-		{
-			.x = 0.0f,
-			.y = 0.0f,
-			.width = static_cast<float>(_swapChainExtent.width),
-			.height = static_cast<float>(_swapChainExtent.height),
-			.minDepth = 0.0f,
-			.maxDepth = 1.0f,
-		};
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-		VkRect2D scissor
-		{
-			.offset = { 0, 0 },
-			.extent = _swapChainExtent,
-		};
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-		VkBuffer vertexBuffers[] = { _vertexBuffer };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-		vkCmdBindDescriptorSets(
-			commandBuffer, 
-			VK_PIPELINE_BIND_POINT_GRAPHICS, 
-			_pipelineLayout, 
-			0, 
-			1, 
-			&_descriptorSets[_currentFrame], 
-			0, 
-			nullptr);
-
-		vkCmdDrawIndexed(commandBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
-
-		vkCmdEndRenderPass(commandBuffer);
+		transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
@@ -1588,6 +1532,44 @@ namespace HelloVulkan
 	bool hasStencilComponent(VkFormat format)
 	{
 		return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+	}
+
+	void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout)
+	{
+		VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+			? VK_IMAGE_ASPECT_DEPTH_BIT
+			: VK_IMAGE_ASPECT_COLOR_BIT;
+		
+		VkImageMemoryBarrier2 imageBarrier
+		{ 
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.pNext = nullptr,
+			.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+			.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+			.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+			.oldLayout = currentLayout,
+			.newLayout = newLayout,
+			.image = image,
+			.subresourceRange 
+			{
+				.aspectMask = aspectMask,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		};
+		
+		VkDependencyInfo depInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.pNext = nullptr,
+			.imageMemoryBarrierCount = 1,
+			.pImageMemoryBarriers = &imageBarrier,
+		};
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
 	}
 
 	std::vector<char> readFile(const std::string& filename)
