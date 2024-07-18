@@ -16,7 +16,7 @@ namespace Engine
 
 		void OnScroll(float yOffset);
 		void OnMouseMove(float xOffset, float yOffset);
-		void Resize(uint32_t width, uint32_t height);
+		void OnResize(uint32_t width, uint32_t height);
 
 		glm::mat4 GetViewMatrix() const;
 		glm::mat4 GetProjectionMatrix() const;

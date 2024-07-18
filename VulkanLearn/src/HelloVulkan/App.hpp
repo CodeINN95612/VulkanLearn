@@ -91,8 +91,7 @@ namespace HelloVulkan
 		const std::string TEXTURE_PATH = "assets/textures/viking_room.png";
 
 	public:
-		inline void SetResized(bool resized) { _framebufferResized = resized; }
-		inline void SetDoRender(bool doRender) { _doRender = doRender; }
+		inline void SetResized(bool resized, uint32_t width, uint32_t height);
 		void OnScroll(double yoffset);
 
 		inline const Engine::Camera& GetCamera() const { return _camera; }
@@ -210,7 +209,9 @@ namespace HelloVulkan
 
 		size_t _currentFrame = 0;
 		bool _framebufferResized = false;
-
+				 
+		uint32_t _width = WIDTH;
+		uint32_t _height = HEIGHT;
 		float _deltaTime = 0.0f;
 		float _lastFrame = 0.0f;
 		double _fps = 0.0f;

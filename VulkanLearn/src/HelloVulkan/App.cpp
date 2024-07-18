@@ -74,42 +74,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 
 namespace HelloVulkan
 {
-	struct SwapChainSupportDetails 
-	{
-		VkSurfaceCapabilitiesKHR capabilities;
-		std::vector<VkSurfaceFormatKHR> formats;
-		std::vector<VkPresentModeKHR> presentModes;
-	};
-
-	static const std::vector<const char*> requiredLayers =
-	{
-		"VK_LAYER_KHRONOS_validation"
-	};
-
-	static  const std::vector<const char*> requiredDeviceExtensions = 
-	{
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
-	};
-
-	/*const std::vector<Vertex> _vertices = 
-	{
-		{{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-		{{ 0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-		{{ 0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-
-		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-		{{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-		{{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-		{{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-	};
-
-	const std::vector<uint16_t> indices = 
-	{
-		0, 1, 2, 2, 3, 0,
-		4, 5, 6, 6, 7, 4
-	};*/
-
 	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice);
 	bool hasStencilComponent(VkFormat format);
 
@@ -129,6 +93,17 @@ namespace HelloVulkan
 		Clean();
 	}
 
+	inline void App::SetResized(bool resized, uint32_t width, uint32_t height)
+	{
+		_framebufferResized = resized;
+		_width = width;
+		_height = height;
+
+		bool minimized = width == 0 || height == 0;
+		_doRender = !minimized;
+		_camera.OnResize(width, height);
+	}
+
 	void App::OnScroll(double yoffset)
 	{
 		_camera.OnScroll((float)yoffset);
@@ -145,17 +120,14 @@ namespace HelloVulkan
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-		_window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Triangle", nullptr, nullptr);
+		_window = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
 		glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetWindowUserPointer(_window, this);
 
 		glfwSetFramebufferSizeCallback(_window, [](GLFWwindow* window, int width, int height)
 			{
 				auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
-				app->SetResized(true);
-
-				bool minimized = width == 0 || height == 0;
-				app->SetDoRender(!minimized);
+				app->SetResized(true, width, height);
 			}
 		);
 
@@ -373,10 +345,7 @@ namespace HelloVulkan
 
 	void App::CreateSwapChain()
 	{
-		int width, height;
-		glfwGetFramebufferSize(_window, &width, &height);
-
-		auto data = Vulkan::boostrapSwapchain(width, height, _physicalDevice, _logicalDevice, _surface);
+		auto data = Vulkan::boostrapSwapchain(_width, _height, _physicalDevice, _logicalDevice, _surface);
 		_swapChain = data.swapchain;
 		_swapChainImageFormat = data.imageFormat;
 		_swapChainExtent = data.extent;
@@ -1390,11 +1359,6 @@ namespace HelloVulkan
 
 	void App::UpdateUniformBuffer(size_t currentImage)
 	{
-		if (_framebufferResized)
-		{
-			_camera.Resize(_swapChainExtent.width, _swapChainExtent.height);
-		}
-
 		UniformBufferObject ubo
 		{
 			.model = glm::mat4(1.0f),
