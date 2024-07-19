@@ -119,6 +119,7 @@ namespace HelloVulkan
 		}
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+		//glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 		_window = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
 		//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -206,11 +207,15 @@ namespace HelloVulkan
 	{
 		spdlog::info("Limpiando");
 
+		DeletionQueue.Flush();
+
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroySemaphore(_logicalDevice, _renderFinishedSemaphores[i], nullptr);
-			vkDestroySemaphore(_logicalDevice, _imageAvailableSemaphores[i], nullptr);
-			vkDestroyFence(_logicalDevice, _inFlightFences[i], nullptr);
+			vkDestroySemaphore(_logicalDevice, _frames[i].ImageAvailableSemaphore, nullptr);
+			vkDestroySemaphore(_logicalDevice, _frames[i].RenderFinishedSemaphore, nullptr);
+			vkDestroyFence(_logicalDevice, _frames[i].Fence, nullptr);
 			vkDestroyCommandPool(_logicalDevice, _frames[i].CommandPool, nullptr);
+
+			_frames[i].DeletionQueue.Flush();
 		}
 
 		CleanUpSwapChain();
@@ -296,6 +301,21 @@ namespace HelloVulkan
 		_presentQueue = data.presentQueue;
 		_presentQueueFamilyIndex = data.presentQueueFamilyIndex;
 
+		VmaAllocatorCreateInfo allocatorInfo
+		{
+			.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+			.physicalDevice = _physicalDevice,
+			.device = _logicalDevice,
+			.instance = _instance,
+		};
+		vmaCreateAllocator(&allocatorInfo, &_allocator);
+
+		DeletionQueue.Push([&]() 
+			{
+				vmaDestroyAllocator(_allocator);
+			}
+		);
+
 		CreateSyncObjects();
 		CreateSwapChain();
 		CreateCommands();
@@ -309,6 +329,48 @@ namespace HelloVulkan
 		_swapChainExtent = data.extent;
 		_swapChainImages = data.images;
 		_swapChainImageViews = data.imageViews;
+
+		VkExtent3D drawImageExtent
+		{
+			.width = _width,
+			.height = _height,
+			.depth = 1,
+		};
+
+		_drawImage.ImageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+		_drawImage.ImageExtent = drawImageExtent;
+
+		VkImageUsageFlags drawImageUsages = VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+			| VK_IMAGE_USAGE_TRANSFER_DST_BIT
+			| VK_IMAGE_USAGE_STORAGE_BIT
+			| VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+		VkImageCreateInfo drawImageInfo = Vulkan::Init::imageCreateInfo(
+			_drawImage.ImageFormat,
+			drawImageUsages,
+			_drawImage.ImageExtent);
+
+		VmaAllocationCreateInfo drawImageAllocInfo
+		{
+			.usage = VMA_MEMORY_USAGE_GPU_ONLY,
+			.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		};
+
+		VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &drawImageAllocInfo, &_drawImage.Image, &_drawImage.Allocation, nullptr));
+
+		VkImageViewCreateInfo drawImageViewInfo = Vulkan::Init::imageViewCreateInfo(
+			_drawImage.ImageFormat,
+			_drawImage.Image,
+			VK_IMAGE_ASPECT_COLOR_BIT);
+
+		VK_CHECK(vkCreateImageView(_logicalDevice, &drawImageViewInfo, nullptr, &_drawImage.ImageView));
+
+		DeletionQueue.Push([=]()
+			{
+				vkDestroyImageView(_logicalDevice, _drawImage.ImageView, nullptr);
+				vmaDestroyImage(_allocator, _drawImage.Image, _drawImage.Allocation);
+			}
+		);
 	}
 
 	void App::CreateRenderPass()
@@ -625,17 +687,13 @@ namespace HelloVulkan
 		VkSemaphoreCreateInfo semaphoreInfo = Vulkan::Init::semaphoreCreateInfo();
 		VkFenceCreateInfo fenceInfo = Vulkan::Init::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
 
-		_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-		_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-		_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]));
+			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_frames[i].ImageAvailableSemaphore));
 
-			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]));
+			VK_CHECK(vkCreateSemaphore(_logicalDevice, &semaphoreInfo, nullptr, &_frames[i].RenderFinishedSemaphore));
 
-			VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_inFlightFences[i]));
+			VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_frames[i].Fence));
 		}
 	}
 
@@ -912,14 +970,14 @@ namespace HelloVulkan
 
 		stbi_image_free(pixels);
 
-		CreateImage({.width = (uint32_t)texWidth,
+		/*Vulkan::Init({.width = (uint32_t)texWidth,
 				.height = (uint32_t)texHeight,
 				.format = VK_FORMAT_R8G8B8A8_SRGB,
 				.tiling = VK_IMAGE_TILING_OPTIMAL,
 				.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				.image = _textureImage,
-				.imageMemory = _textureImageMemory});
+				.imageMemory = _textureImageMemory});*/
 
 		TransitionImageLayout(_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		CopyBufferToImage(stagingBuffer, _textureImage, (uint32_t)texWidth, (uint32_t)texHeight);
@@ -936,7 +994,7 @@ namespace HelloVulkan
 	{
 		spdlog::info("Inicializando Vista de Imagen de Textura");
 
-		_textureImageView = CreateImageView(_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+		//_textureImageView = CreateImageView(_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
 
 		spdlog::info("Inicializacion de Vista de Imagen de Textura exitosa");
 	}
@@ -1019,7 +1077,7 @@ namespace HelloVulkan
 		spdlog::info("Inicializando Recursos de Profundidad");
 
 		VkFormat depthFormat = FindDepthFormat();
-		CreateImage({ .width = _swapChainExtent.width,
+		/*CreateImage({ .width = _swapChainExtent.width,
 					.height = _swapChainExtent.height,
 					.format = depthFormat,
 					.tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -1028,7 +1086,7 @@ namespace HelloVulkan
 					.image = _depthImage,
 					.imageMemory = _depthImageMemory });
 
-		_depthImageView = CreateImageView(_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+		_depthImageView = CreateImageView(_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);*/
 
 		TransitionImageLayout(_depthImage, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
@@ -1037,10 +1095,12 @@ namespace HelloVulkan
 
 	void App::DrawFrame()
 	{
-		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX));
+		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &Frame().Fence, VK_TRUE, UINT64_MAX));
+
+		Frame().DeletionQueue.Flush();
 
 		uint32_t imageIndex;
-		VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, Frame().ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 			RecreateSwapChain();
 			return;
@@ -1049,7 +1109,7 @@ namespace HelloVulkan
 			throw std::exception("No fue posible obtener la imagen");
 		}
 
-		VK_CHECK(vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]));
+		VK_CHECK(vkResetFences(_logicalDevice, 1, &Frame().Fence));
 
 		VkCommandBuffer currentCommandBuffer = Frame().CommandBuffer;
 
@@ -1059,14 +1119,19 @@ namespace HelloVulkan
 
 		VkCommandBufferSubmitInfo commandBufferInfo = Vulkan::Init::commandBufferSubmitInfo(currentCommandBuffer);
 
-		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(_imageAvailableSemaphores[_currentFrame], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR);
-		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(_renderFinishedSemaphores[_currentFrame], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
+		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(
+			Frame().ImageAvailableSemaphore, 
+			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR);
+
+		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(
+			Frame().RenderFinishedSemaphore,
+			VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
 
 		VkSubmitInfo2 submitInfo2 = Vulkan::Init::submitInfo2(commandBufferInfo, waitSemaphoreSubmitInfo,  signalSemaphoreSubmitInfo);
 
-		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, _inFlightFences[_currentFrame]));
+		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, Frame().Fence));
 
-		VkPresentInfoKHR presentInfo = Vulkan::Init::presentInfoKHR(&_swapChain, &imageIndex, &_renderFinishedSemaphores[_currentFrame]);
+		VkPresentInfoKHR presentInfo = Vulkan::Init::presentInfoKHR(&_swapChain, &imageIndex, &Frame().RenderFinishedSemaphore);
 
 		result = vkQueuePresentKHR(_presentQueue, &presentInfo);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _framebufferResized) {
@@ -1110,14 +1175,17 @@ namespace HelloVulkan
 
 		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+		Vulkan::Image::transitionImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-		VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
-		VkImageSubresourceRange clearRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+		ClearBackground(commandBuffer);
 
-		vkCmdClearColorImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+		Vulkan::Image::transitionImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		Vulkan::Image::copyImage(commandBuffer, _drawImage.Image, _swapChainImages[imageIndex], _drawImageExtent, _swapChainExtent);
+
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
@@ -1151,45 +1219,6 @@ namespace HelloVulkan
 		VK_CHECK(vkBindBufferMemory(_logicalDevice, buffer, bufferMemory, 0));
 
 		spdlog::info("Inicializacion de Buffer exitosa");
-	}
-
-	void App::CreateImage(CreateImageParams params)
-	{
-		VkImageCreateInfo imageInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-			.imageType = VK_IMAGE_TYPE_2D,
-			.format = params.format,
-			.extent
-			{
-				.width = params.width,
-				.height = params.height,
-				.depth = 1,
-			},
-			.mipLevels = 1,
-			.arrayLayers = 1,
-			.samples = VK_SAMPLE_COUNT_1_BIT,
-			.tiling = params.tiling,
-			.usage = params.usage,
-			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		};
-
-		VK_CHECK(vkCreateImage(_logicalDevice, &imageInfo, nullptr, &params.image));
-
-		VkMemoryRequirements memRequirements;
-		vkGetImageMemoryRequirements(_logicalDevice, params.image, &memRequirements);
-
-		VkMemoryAllocateInfo allocInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.allocationSize = memRequirements.size,
-			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, params.properties, _physicalDevice),
-		};
-
-		VK_CHECK(vkAllocateMemory(_logicalDevice, &allocInfo, nullptr, &params.imageMemory));
-
-		VK_CHECK(vkBindImageMemory(_logicalDevice, params.image, params.imageMemory, 0));
 	}
 
 	void App::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
@@ -1321,23 +1350,6 @@ namespace HelloVulkan
 		EndTemporaryCommandBuffer(commandBuffer);
 	}
 
-	VkImageView App::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
-	{
-		VkImageViewCreateInfo viewInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.image = image,
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.format = format,
-			.subresourceRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
-		};
-
-		VkImageView imageView = VK_NULL_HANDLE;
-		VK_CHECK(vkCreateImageView(_logicalDevice, &viewInfo, nullptr, &imageView));
-
-		return imageView;
-	}
-
 	VkFormat App::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
 	{
 		for (VkFormat format : candidates) {
@@ -1405,6 +1417,14 @@ namespace HelloVulkan
 		VK_CHECK(vkQueueWaitIdle(_graphicsQueue));
 
 		//vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
+	}
+
+	void App::ClearBackground(VkCommandBuffer commandBuffer)
+	{
+		VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
+		VkImageSubresourceRange clearRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+		vkCmdClearColorImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
 	}
 
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice)

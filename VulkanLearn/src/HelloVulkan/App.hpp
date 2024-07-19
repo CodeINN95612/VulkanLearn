@@ -9,14 +9,32 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
+#include <vma/vk_mem_alloc.h>
+
 #include "../Engine/Camera.hpp"
+#include "../Vulkan/Common/DeletionQueue.hpp"
 
 namespace HelloVulkan
 {
+	struct Image
+	{
+		VkImage Image;
+		VkImageView ImageView;
+		VmaAllocation Allocation;
+		VkExtent3D ImageExtent;
+		VkFormat ImageFormat;
+	};
+
 	struct Frame 
 	{
 		VkCommandPool CommandPool;
 		VkCommandBuffer CommandBuffer;
+
+		VkSemaphore ImageAvailableSemaphore;
+		VkSemaphore RenderFinishedSemaphore;
+		VkFence Fence;
+
+		Vulkan::Common::DeletionQueue DeletionQueue;
 	};
 
 	struct UniformBufferObject 
@@ -104,7 +122,7 @@ namespace HelloVulkan
 		inline const Engine::Camera& GetCamera() const { return _camera; }
 		inline Engine::Camera& GetCamera() { return _camera; }
 
-		inline const Frame& Frame() const { return _frames[_currentFrame]; }
+		inline Frame& Frame() { return _frames[_currentFrame]; }
 
 	private:
 		void InitWindow();
@@ -146,17 +164,17 @@ namespace HelloVulkan
 
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
 		void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
-		void CreateImage(CreateImageParams params);
 		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 		void UpdateUniformBuffer(size_t currentImage);
 		void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 		void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-		VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 		VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 		VkFormat FindDepthFormat();
 
 		VkCommandBuffer StartTemporaryCommandBuffer();
 		void EndTemporaryCommandBuffer(VkCommandBuffer commandBuffer);
+
+		void ClearBackground(VkCommandBuffer commandBuffer);
 
 	private:
 		bool _doRender = true;
@@ -186,10 +204,6 @@ namespace HelloVulkan
 		std::vector<VkFramebuffer> _framebuffers;
 
 		HelloVulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT];
-
-		std::vector<VkSemaphore> _imageAvailableSemaphores;
-		std::vector<VkSemaphore> _renderFinishedSemaphores;
-		std::vector<VkFence> _inFlightFences;
 
 		std::vector<Vertex> _vertices;
 		std::vector<uint32_t> _indices;
@@ -224,5 +238,11 @@ namespace HelloVulkan
 		float _lastFrame = 0.0f;
 		double _fps = 0.0f;
 		Engine::Camera _camera;
+
+		Vulkan::Common::DeletionQueue DeletionQueue;
+		VmaAllocator _allocator = nullptr;
+
+		Image _drawImage = {};
+		VkExtent2D _drawImageExtent = {};
 	};
 }

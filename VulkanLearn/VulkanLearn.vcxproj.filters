@@ -33,6 +33,9 @@
     <ClCompile Include="vendor\vk_boostrap\VkBootstrap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="vendor\vma\vk_mem_alloc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Engine\Camera.hpp">
@@ -59,9 +62,13 @@
     <ClInclude Include="src\Common\Utils.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\Vulkan\Common\DeletionQueue.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\shader.vert" />
     <None Include="assets\shaders\shader.frag" />
+    <None Include="assets\shaders\shader.comp" />
   </ItemGroup>
 </Project>
