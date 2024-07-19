@@ -65,6 +65,12 @@
     <ClInclude Include="src\Vulkan\Common\DeletionQueue.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\Vulkan\Common\DescriptorLayoutBuilder.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Vulkan\Common\DescriptorAllocator.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\shader.vert" />

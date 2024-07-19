@@ -140,6 +140,8 @@
     <ClInclude Include="src\Engine\InputState.hpp" />
     <ClInclude Include="src\HelloVulkan\App.hpp" />
     <ClInclude Include="src\Vulkan\Common\DeletionQueue.hpp" />
+    <ClInclude Include="src\Vulkan\Common\DescriptorAllocator.hpp" />
+    <ClInclude Include="src\Vulkan\Common\DescriptorLayoutBuilder.hpp" />
     <ClInclude Include="src\Vulkan\Image.hpp" />
     <ClInclude Include="src\Vulkan\Init.hpp" />
     <ClInclude Include="src\Vulkan\Types.hpp" />
