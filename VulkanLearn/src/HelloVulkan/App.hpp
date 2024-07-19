@@ -13,7 +13,14 @@
 
 namespace HelloVulkan
 {
-	struct UniformBufferObject {
+	struct Frame 
+	{
+		VkCommandPool CommandPool;
+		VkCommandBuffer CommandBuffer;
+	};
+
+	struct UniformBufferObject 
+	{
 		glm::mat4 model;
 		glm::mat4 view;
 		glm::mat4 proj;
@@ -97,6 +104,8 @@ namespace HelloVulkan
 		inline const Engine::Camera& GetCamera() const { return _camera; }
 		inline Engine::Camera& GetCamera() { return _camera; }
 
+		inline const Frame& Frame() const { return _frames[_currentFrame]; }
+
 	private:
 		void InitWindow();
 		void InitVulkan();
@@ -110,8 +119,7 @@ namespace HelloVulkan
 		void CreateRenderPass();
 		void CreateGraphicsPipeline();
 		void CreateFramebuffers();
-		void CreateCommandPool();
-		void CreateCommandBuffers();
+		void CreateCommands();
 		void CreateSyncObjects();
 		void RecreateSwapChain();
 		void CleanUpSwapChain();
@@ -177,8 +185,7 @@ namespace HelloVulkan
 
 		std::vector<VkFramebuffer> _framebuffers;
 
-		VkCommandPool _commandPool = VK_NULL_HANDLE;
-		std::vector<VkCommandBuffer> _commandBuffers;
+		HelloVulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT];
 
 		std::vector<VkSemaphore> _imageAvailableSemaphores;
 		std::vector<VkSemaphore> _renderFinishedSemaphores;

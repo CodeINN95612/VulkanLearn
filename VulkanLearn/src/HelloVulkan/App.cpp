@@ -18,6 +18,9 @@
 
 #include "../Engine/InputState.hpp"
 #include "../Vulkan/Utils.hpp"
+#include "../Vulkan/Init.hpp"
+#include "../Vulkan/Image.hpp"
+#include "../Common/Utils.hpp"
 
 
 namespace std {
@@ -77,11 +80,6 @@ namespace HelloVulkan
 	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice);
 	bool hasStencilComponent(VkFormat format);
 
-	void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout);
-
-	static std::vector<char> readFile(const std::string& filename);
-	
-
 	App::App()
 		: _camera(WIDTH, HEIGHT)
 	{
@@ -123,7 +121,7 @@ namespace HelloVulkan
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 		_window = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
-		glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetWindowUserPointer(_window, this);
 
 		glfwSetFramebufferSizeCallback(_window, [](GLFWwindow* window, int width, int height)
@@ -212,9 +210,8 @@ namespace HelloVulkan
 			vkDestroySemaphore(_logicalDevice, _renderFinishedSemaphores[i], nullptr);
 			vkDestroySemaphore(_logicalDevice, _imageAvailableSemaphores[i], nullptr);
 			vkDestroyFence(_logicalDevice, _inFlightFences[i], nullptr);
+			vkDestroyCommandPool(_logicalDevice, _frames[i].CommandPool, nullptr);
 		}
-
-		vkDestroyCommandPool(_logicalDevice, _commandPool, nullptr);
 
 		CleanUpSwapChain();
 
@@ -299,10 +296,9 @@ namespace HelloVulkan
 		_presentQueue = data.presentQueue;
 		_presentQueueFamilyIndex = data.presentQueueFamilyIndex;
 
-		CreateCommandPool();
-		CreateSwapChain();
-		CreateCommandBuffers();
 		CreateSyncObjects();
+		CreateSwapChain();
+		CreateCommands();
 	}
 
 	void App::CreateSwapChain()
@@ -394,8 +390,8 @@ namespace HelloVulkan
 	{
 		spdlog::info("Inicializando Graphics pipeline");
 
-		auto vertShaderCode = readFile("assets/shaders/shader.vert.spv");
-		auto fragShaderCode = readFile("assets/shaders/shader.frag.spv");
+		auto vertShaderCode = Common::Utils::readFile("assets/shaders/shader.vert.spv");
+		auto fragShaderCode = Common::Utils::readFile("assets/shaders/shader.frag.spv");
 
 		VkShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
 		VkShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
@@ -609,54 +605,25 @@ namespace HelloVulkan
 		spdlog::info("Inicializacion de Framebuffers exitosa");
 	}
 
-	void App::CreateCommandPool()
+	void App::CreateCommands()
 	{
-		spdlog::info("Inicializando Command Pool");
+		VkCommandPoolCreateInfo poolInfo = Vulkan::Init::commandPoolCreateInfo(
+			_graphicsQueueFamilyIndex,
+			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-		VkCommandPoolCreateInfo poolInfo
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			.queueFamilyIndex = _graphicsQueueFamilyIndex,
-		};
+			VK_CHECK(vkCreateCommandPool(_logicalDevice, &poolInfo, nullptr, &_frames[i].CommandPool));
 
-		VK_CHECK(vkCreateCommandPool(_logicalDevice, &poolInfo, nullptr, &_commandPool));
-
-		spdlog::info("Inicializacion de Command Pool exitosa");
-	}
-
-	void App::CreateCommandBuffers()
-	{
-		spdlog::info("Inicializando Command Buffer");
-
-		_commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		VkCommandBufferAllocateInfo allocInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = _commandPool,
-			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = (uint32_t)_commandBuffers.size(),
-		};
-
-		VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &allocInfo, _commandBuffers.data()));
-
-		spdlog::info("Inicializacion de Command Buffer exitosa");
+			VkCommandBufferAllocateInfo allocInfo = Vulkan::Init::commandBufferAllocateInfo(_frames[i].CommandPool, 1);
+			VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &allocInfo, &_frames[i].CommandBuffer));
+		}
 	}
 
 	void App::CreateSyncObjects()
 	{
-		spdlog::info("Inicializando Objetos de syncronizacion");
-
-		VkSemaphoreCreateInfo semaphoreInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		};
-
-		VkFenceCreateInfo fenceInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
-		};
+		VkSemaphoreCreateInfo semaphoreInfo = Vulkan::Init::semaphoreCreateInfo();
+		VkFenceCreateInfo fenceInfo = Vulkan::Init::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
 
 		_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 		_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
@@ -670,8 +637,6 @@ namespace HelloVulkan
 
 			VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_inFlightFences[i]));
 		}
-		
-		spdlog::info("Inicializacion de Objetos de sincronizacion exitosa");
 	}
 
 	void App::RecreateSwapChain()
@@ -681,20 +646,10 @@ namespace HelloVulkan
 		CleanUpSwapChain();
 
 		CreateSwapChain();
-		CreateDepthResources();
-		CreateFramebuffers();
 	}
 
 	void App::CleanUpSwapChain()
 	{
-		vkDestroyImageView(_logicalDevice, _depthImageView, nullptr);
-		vkDestroyImage(_logicalDevice, _depthImage, nullptr);
-		vkFreeMemory(_logicalDevice, _depthImageMemory, nullptr);
-
-		for (auto framebuffer : _framebuffers) {
-			vkDestroyFramebuffer(_logicalDevice, framebuffer, nullptr);
-		}
-
 		for (auto imageView : _swapChainImageViews) {
 			vkDestroyImageView(_logicalDevice, imageView, nullptr);
 		}
@@ -1096,64 +1051,22 @@ namespace HelloVulkan
 
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &_inFlightFences[_currentFrame]));
 
-		VkCommandBuffer currentCommandBuffer = _commandBuffers[_currentFrame];
+		VkCommandBuffer currentCommandBuffer = Frame().CommandBuffer;
 
 		VK_CHECK(vkResetCommandBuffer(currentCommandBuffer, 0));
 
 		RecordCommandBuffer(currentCommandBuffer, imageIndex);
 
-		VkCommandBufferSubmitInfo commandBufferInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-			.pNext = nullptr,
-			.commandBuffer = currentCommandBuffer,
-			.deviceMask = 0,
-		};
+		VkCommandBufferSubmitInfo commandBufferInfo = Vulkan::Init::commandBufferSubmitInfo(currentCommandBuffer);
 
-		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-			.pNext = nullptr,
-			.semaphore = _imageAvailableSemaphores[_currentFrame],
-			.value = 1,
-			.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-			.deviceIndex = 0,
-		};
+		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(_imageAvailableSemaphores[_currentFrame], VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR);
+		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = Vulkan::Init::semaphoreSubmitInfo(_renderFinishedSemaphores[_currentFrame], VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
 
-		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-			.pNext = nullptr,
-			.semaphore = _renderFinishedSemaphores[_currentFrame],
-			.value = 1,
-			.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-			.deviceIndex = 0,
-		};
-
-		VkSubmitInfo2 submitInfo2
-		{
-			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-			.waitSemaphoreInfoCount = 1,
-			.pWaitSemaphoreInfos = &waitSemaphoreSubmitInfo,
-			.commandBufferInfoCount = 1,
-			.pCommandBufferInfos = &commandBufferInfo,
-			.signalSemaphoreInfoCount = 1,
-			.pSignalSemaphoreInfos = &signalSemaphoreSubmitInfo,
-		};
+		VkSubmitInfo2 submitInfo2 = Vulkan::Init::submitInfo2(commandBufferInfo, waitSemaphoreSubmitInfo,  signalSemaphoreSubmitInfo);
 
 		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, _inFlightFences[_currentFrame]));
 
-		VkSwapchainKHR swapChains[] = { _swapChain };
-		VkPresentInfoKHR presentInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &_renderFinishedSemaphores[_currentFrame],
-			.swapchainCount = 1,
-			.pSwapchains = swapChains,
-			.pImageIndices = &imageIndex,
-			.pResults = nullptr,
-		};
+		VkPresentInfoKHR presentInfo = Vulkan::Init::presentInfoKHR(&_swapChain, &imageIndex, &_renderFinishedSemaphores[_currentFrame]);
 
 		result = vkQueuePresentKHR(_presentQueue, &presentInfo);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _framebufferResized) {
@@ -1197,21 +1110,14 @@ namespace HelloVulkan
 
 		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-		transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
 		VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
-		VkImageSubresourceRange clearRange
-		{
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		};
+		VkImageSubresourceRange clearRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
 		vkCmdClearColorImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
 
-		transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
@@ -1328,14 +1234,7 @@ namespace HelloVulkan
 			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.image = image,
-			.subresourceRange
-			{
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
+			.subresourceRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
 		};
 
 		VkPipelineStageFlags sourceStage;
@@ -1430,14 +1329,7 @@ namespace HelloVulkan
 			.image = image,
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
 			.format = format,
-			.subresourceRange
-			{
-				.aspectMask = aspectFlags,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
+			.subresourceRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
 		};
 
 		VkImageView imageView = VK_NULL_HANDLE;
@@ -1477,7 +1369,7 @@ namespace HelloVulkan
 		VkCommandBufferAllocateInfo allocInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = _commandPool,
+			//.commandPool = _commandPool,
 			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 			.commandBufferCount = 1,
 		};
@@ -1512,7 +1404,7 @@ namespace HelloVulkan
 
 		VK_CHECK(vkQueueWaitIdle(_graphicsQueue));
 
-		vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
+		//vkFreeCommandBuffers(_logicalDevice, _commandPool, 1, &commandBuffer);
 	}
 
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice)
@@ -1533,64 +1425,4 @@ namespace HelloVulkan
 	{
 		return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 	}
-
-	void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout)
-	{
-		VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-			? VK_IMAGE_ASPECT_DEPTH_BIT
-			: VK_IMAGE_ASPECT_COLOR_BIT;
-		
-		VkImageMemoryBarrier2 imageBarrier
-		{ 
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-			.pNext = nullptr,
-			.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-			.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-			.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-			.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-			.oldLayout = currentLayout,
-			.newLayout = newLayout,
-			.image = image,
-			.subresourceRange 
-			{
-				.aspectMask = aspectMask,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
-		};
-		
-		VkDependencyInfo depInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-			.pNext = nullptr,
-			.imageMemoryBarrierCount = 1,
-			.pImageMemoryBarriers = &imageBarrier,
-		};
-
-		vkCmdPipelineBarrier2(cmd, &depInfo);
-	}
-
-	std::vector<char> readFile(const std::string& filename)
-	{
-		std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-		if (!file.is_open()) {
-			spdlog::error("No se pudo abrir el archivo {0}", filename);
-			throw std::exception("No se pudo abrir el archivo");
-		}
-
-		size_t fileSize = (size_t)file.tellg();
-		std::vector<char> buffer(fileSize);
-
-		file.seekg(0);
-		file.read(buffer.data(), fileSize);
-
-		file.close();
-
-		return buffer;
-	}
-
-
 }

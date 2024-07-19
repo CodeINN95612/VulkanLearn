@@ -134,9 +134,12 @@
     <ClCompile Include="vendor\vk_boostrap\VkBootstrap.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Common\Utils.hpp" />
     <ClInclude Include="src\Engine\Camera.hpp" />
     <ClInclude Include="src\Engine\InputState.hpp" />
     <ClInclude Include="src\HelloVulkan\App.hpp" />
+    <ClInclude Include="src\Vulkan\Image.hpp" />
+    <ClInclude Include="src\Vulkan\Init.hpp" />
     <ClInclude Include="src\Vulkan\Types.hpp" />
     <ClInclude Include="src\Vulkan\Utils.hpp" />
   </ItemGroup>
