@@ -127,6 +127,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\Engine\Camera.cpp" />
+    <ClCompile Include="src\Engine\Model.cpp" />
     <ClCompile Include="src\HelloVulkan\App.cpp" />
     <ClCompile Include="vendor\imgui\imgui.cpp" />
     <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
@@ -145,6 +146,7 @@
     <ClInclude Include="src\Common\Utils.hpp" />
     <ClInclude Include="src\Engine\Camera.hpp" />
     <ClInclude Include="src\Engine\InputState.hpp" />
+    <ClInclude Include="src\Engine\Model.hpp" />
     <ClInclude Include="src\HelloVulkan\App.hpp" />
     <ClInclude Include="src\Vulkan\Common\DeletionQueue.hpp" />
     <ClInclude Include="src\Vulkan\Common\DescriptorAllocator.hpp" />

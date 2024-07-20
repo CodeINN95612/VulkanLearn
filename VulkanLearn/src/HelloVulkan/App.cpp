@@ -25,17 +25,7 @@
 #include "../Vulkan/Init.hpp"
 #include "../Vulkan/Image.hpp"
 #include "../Common/Utils.hpp"
-
-
-namespace std {
-	template<> struct hash<HelloVulkan::Vertex> {
-		size_t operator()(HelloVulkan::Vertex const& vertex) const {
-			return ((hash<glm::vec3>()(vertex.pos) ^
-				(hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
-				(hash<glm::vec2>()(vertex.texCoord) << 1);
-		}
-	};
-}
+#include "../Engine/Model.hpp"
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback( 
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -654,47 +644,6 @@ namespace HelloVulkan
 				vkDestroyDescriptorPool(_logicalDevice, imguiPool, nullptr);
 			}
 		);
-	}
-
-	void App::LoadModel(const char* path)
-	{
-		/*tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
-		std::string warn, err;
-
-		bool loaded = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path);
-		if (!loaded)
-		{
-			throw std::exception("No fue posible cargar el modelo");
-		}
-
-		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-		for (const auto& shape : shapes) {
-			for (const auto& index : shape.mesh.indices) {
-				Vertex vertex{};
-
-				vertex.pos = {
-					attrib.vertices[3 * index.vertex_index + 0],
-					attrib.vertices[3 * index.vertex_index + 1],
-					attrib.vertices[3 * index.vertex_index + 2]
-				};
-
-				vertex.texCoord = {
-					attrib.texcoords[2 * index.texcoord_index + 0],
-					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-				};
-
-				vertex.color = { 1.0f, 1.0f, 1.0f };
-
-				if (uniqueVertices.count(vertex) == 0) {
-					uniqueVertices[vertex] = (uint32_t)_vertices.size();
-					_vertices.push_back(vertex);
-				}
-
-				_indices.push_back(uniqueVertices[vertex]);
-			}
-		}*/
 	}
 
 	void App::DrawFrame()
