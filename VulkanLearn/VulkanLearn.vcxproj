@@ -128,6 +128,13 @@
   <ItemGroup>
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\HelloVulkan\App.cpp" />
+    <ClCompile Include="vendor\imgui\imgui.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_impl_glfw.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_tables.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="vendor\imgui\vulkan\imgui_impl_vulkan.cpp" />
     <ClCompile Include="vendor\stb\stb_image.cpp" />
     <ClCompile Include="src\VulkanLearn.cpp" />
     <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp" />
@@ -144,6 +151,7 @@
     <ClInclude Include="src\Vulkan\Common\DescriptorLayoutBuilder.hpp" />
     <ClInclude Include="src\Vulkan\Image.hpp" />
     <ClInclude Include="src\Vulkan\Init.hpp" />
+    <ClInclude Include="src\Vulkan\Pipeline.hpp" />
     <ClInclude Include="src\Vulkan\Types.hpp" />
     <ClInclude Include="src\Vulkan\Utils.hpp" />
   </ItemGroup>

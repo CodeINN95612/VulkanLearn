@@ -15,6 +15,7 @@
 #include "../Vulkan/Common/DeletionQueue.hpp"
 #include "../Vulkan/Common/DescriptorAllocator.hpp"
 #include "../Vulkan/Common/DescriptorLayoutBuilder.hpp"
+#include "../Vulkan/Pipeline.hpp"
 
 namespace HelloVulkan
 {
@@ -133,6 +134,7 @@ namespace HelloVulkan
 		void Clean();
 
 		void OnUpdate(float dt);
+		void OnImGuiRender();
 		void OnRender();
 
 		void CreateSwapChain();
@@ -141,14 +143,19 @@ namespace HelloVulkan
 		void RecreateSwapChain();
 		void CleanUpSwapChain();
 		void CreateDescriptors();
+		void CreatePipeline();
+		void InitializeImgui();
 
 		void LoadModel(const char* path);
 
 		void DrawFrame();
+		void DrawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
 		void ClearBackground(VkCommandBuffer commandBuffer);
+
+		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
 	private:
 		bool _doRender = true;
@@ -188,8 +195,14 @@ namespace HelloVulkan
 		Image _drawImage = {};
 		VkExtent2D _drawImageExtent = {};
 
-		Vulkan::Common::DescriptorAllocator _descriptorAllocator;
+		Vulkan::Common::DescriptorAllocator _descriptorAllocator = {};
 		VkDescriptorSet _descriptorSet = VK_NULL_HANDLE;
 		VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
+		VkPipeline _pipeline = VK_NULL_HANDLE;
+		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
+
+		VkFence _immFence;
+		VkCommandBuffer _immCommandBuffer;
+		VkCommandPool _immCommandPool;
 	};
 }

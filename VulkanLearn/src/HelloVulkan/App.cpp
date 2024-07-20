@@ -16,6 +16,10 @@
 
 #include <tinyobjloader/tiny_obj_loader.h>
 
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/vulkan/imgui_impl_vulkan.h>
+
 #include "../Engine/InputState.hpp"
 #include "../Vulkan/Utils.hpp"
 #include "../Vulkan/Init.hpp"
@@ -117,7 +121,7 @@ namespace HelloVulkan
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		//glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 		_window = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
 		//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetWindowUserPointer(_window, this);
@@ -174,13 +178,14 @@ namespace HelloVulkan
 
 			OnUpdate(_deltaTime);
 
+
 			if (_doRender)
 			{
+				OnImGuiRender();
 				OnRender();
 			}
 			else
 			{
-				//throttle the speed to avoid the endless spinning
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
 
@@ -188,10 +193,7 @@ namespace HelloVulkan
             double currentTime = glfwGetTime();
             frameCount++;
             if (currentTime - lastTime >= 0.5) {
-                double fps = frameCount / (currentTime - lastTime);
-                std::string windowTitle = "Vulkan Triangle | FPS: " + std::to_string(fps);
-                glfwSetWindowTitle(_window, windowTitle.c_str());
-				_fps = fps;
+				_fps = frameCount / (currentTime - lastTime);;
                 frameCount = 0;
                 lastTime = currentTime;
             }
@@ -280,6 +282,52 @@ namespace HelloVulkan
 		_camera.OnUpdate(_deltaTime);
 	}
 
+	void App::OnImGuiRender()
+	{
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
+		static bool open = true;
+		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->WorkPos);
+		ImGui::SetNextWindowSize(viewport->WorkSize);
+		ImGui::SetNextWindowViewport(viewport->ID);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+		ImGuiWindowFlags window_flags = /*ImGuiWindowFlags_MenuBar |*/ ImGuiWindowFlags_NoDocking;
+		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+		ImGui::Begin("DockSpace Demo", &open, window_flags);
+
+		ImGui::PopStyleVar();
+
+		ImGui::PopStyleVar(2);
+
+		ImGuiIO& io = ImGui::GetIO();
+		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+		{
+			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+			ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+		}
+
+		ImGui::Begin("FPS");
+		ImGui::Text("FPS: %.1f", _fps);
+		ImGui::End();
+
+		//ImGui::ShowDemoWindow();
+
+		ImGui::End();
+
+		ImGui::Render();
+	}
+
 	void App::OnRender()
 	{
 		DrawFrame();
@@ -316,6 +364,9 @@ namespace HelloVulkan
 		CreateSyncObjects();
 		CreateSwapChain();
 		CreateCommands();
+		CreateDescriptors();
+		CreatePipeline();
+		InitializeImgui();
 	}
 
 	void App::CreateSwapChain()
@@ -383,6 +434,19 @@ namespace HelloVulkan
 			VkCommandBufferAllocateInfo allocInfo = Vulkan::Init::commandBufferAllocateInfo(_frames[i].CommandPool, 1);
 			VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &allocInfo, &_frames[i].CommandBuffer));
 		}
+		
+		// Immediate ImGui Command Pool
+		VK_CHECK(vkCreateCommandPool(_logicalDevice, &poolInfo, nullptr, &_immCommandPool));
+		
+		VkCommandBufferAllocateInfo immAllocInfo = Vulkan::Init::commandBufferAllocateInfo(_immCommandPool, 1);
+		VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &immAllocInfo, &_immCommandBuffer));
+
+		DeletionQueue.Push([=]()
+			{
+				vkDestroyCommandPool(_logicalDevice, _immCommandPool, nullptr);
+			}
+		);
+
 	}
 
 	void App::CreateSyncObjects()
@@ -398,10 +462,21 @@ namespace HelloVulkan
 
 			VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_frames[i].Fence));
 		}
+
+		// Immediate ImGui Sync Objects
+		VK_CHECK(vkCreateFence(_logicalDevice, &fenceInfo, nullptr, &_immFence));
+
+		DeletionQueue.Push([=]()
+			{
+				vkDestroyFence(_logicalDevice, _immFence, nullptr);
+			}
+		);
 	}
 
 	void App::RecreateSwapChain()
 	{
+		return;
+
 		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
 
 		CleanUpSwapChain();
@@ -456,6 +531,127 @@ namespace HelloVulkan
 			{
 				vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
 				_descriptorAllocator.DestroyPool(_logicalDevice);
+			}
+		);
+	}
+
+	void App::CreatePipeline()
+	{
+		//Compute Shader
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.setLayoutCount = 1,
+			.pSetLayouts = &_descriptorSetLayout,
+			.pushConstantRangeCount = 0,
+			.pPushConstantRanges = nullptr,
+		};
+
+		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
+
+		VkShaderModule computeShaderModule = Vulkan::Pipeline::loadShaderModule(_logicalDevice, "assets/shaders/shader.comp.spv");	
+		VkPipelineShaderStageCreateInfo shaderStageInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+			.module = computeShaderModule,
+			.pName = "main",
+		};
+
+		VkComputePipelineCreateInfo pipelineInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+			.stage = shaderStageInfo,
+			.layout = _pipelineLayout,
+		};
+
+		VK_CHECK(vkCreateComputePipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_pipeline));
+
+		vkDestroyShaderModule(_logicalDevice, computeShaderModule, nullptr);
+
+		DeletionQueue.Push([=]()
+			{
+				vkDestroyPipeline(_logicalDevice, _pipeline, nullptr);
+				vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
+			}
+		);
+	}
+
+	void App::InitializeImgui()
+	{
+		VkDescriptorPoolSize poolSizes[] = 
+		{ 
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } 
+		};
+
+		VkDescriptorPoolCreateInfo poolInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+			.maxSets = 1000,
+			.poolSizeCount = (uint32_t)std::size(poolSizes),
+			.pPoolSizes = poolSizes,
+		};
+
+		VkDescriptorPool imguiPool;
+		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &imguiPool));
+
+		ImGui::CreateContext();
+		bool initialized = ImGui_ImplGlfw_InitForVulkan(_window, true);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar la implementacion ImGui para Vulkan");
+		}
+
+		VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &_swapChainImageFormat,
+		};
+
+		ImGui_ImplVulkan_InitInfo initInfo
+		{
+			.Instance = _instance,
+			.PhysicalDevice = _physicalDevice,
+			.Device = _logicalDevice,
+			.QueueFamily = _graphicsQueueFamilyIndex,
+			.Queue = _graphicsQueue,
+			.DescriptorPool = imguiPool,
+			.MinImageCount = 3,
+			.ImageCount = 3,
+			.MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+			.UseDynamicRendering = true,
+			.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo,
+		};
+
+		auto& io = ImGui::GetIO();
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+		
+		initialized = ImGui_ImplVulkan_Init(&initInfo);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar ImGui para Vulkan");
+		}
+
+		ImGui_ImplVulkan_CreateFontsTexture();
+
+		DeletionQueue.Push([=]()
+			{
+				ImGui_ImplVulkan_Shutdown();
+				ImGui_ImplGlfw_Shutdown();
+				ImGui::DestroyContext();
+				vkDestroyDescriptorPool(_logicalDevice, imguiPool, nullptr);
 			}
 		);
 	}
@@ -519,6 +715,9 @@ namespace HelloVulkan
 
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &Frame().Fence));
 
+		_drawImageExtent.width = _drawImage.ImageExtent.width;
+		_drawImageExtent.height = _drawImage.ImageExtent.height;
+
 		VkCommandBuffer currentCommandBuffer = Frame().CommandBuffer;
 
 		VK_CHECK(vkResetCommandBuffer(currentCommandBuffer, 0));
@@ -535,7 +734,7 @@ namespace HelloVulkan
 			Frame().RenderFinishedSemaphore,
 			VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
 
-		VkSubmitInfo2 submitInfo2 = Vulkan::Init::submitInfo2(commandBufferInfo, waitSemaphoreSubmitInfo,  signalSemaphoreSubmitInfo);
+		VkSubmitInfo2 submitInfo2 = Vulkan::Init::submitInfo2(commandBufferInfo, &waitSemaphoreSubmitInfo,  &signalSemaphoreSubmitInfo);
 
 		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, Frame().Fence));
 
@@ -551,6 +750,19 @@ namespace HelloVulkan
 		}
 
 		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+	void App::DrawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView)
+	{
+		VkRenderingAttachmentInfo colorAttachment = Vulkan::Init::attachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		VkRenderingInfo renderInfo = Vulkan::Init::renderingInfo(_swapChainExtent, &colorAttachment, nullptr);
+
+		vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+		ImDrawData* data = ImGui::GetDrawData();
+		ImGui_ImplVulkan_RenderDrawData(data, commandBuffer);
+
+		vkCmdEndRendering(commandBuffer);
 	}
 
 	void App::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -574,16 +786,53 @@ namespace HelloVulkan
 
 		Vulkan::Image::copyImage(commandBuffer, _drawImage.Image, _swapChainImages[imageIndex], _drawImageExtent, _swapChainExtent);
 
-		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+		DrawImgui(commandBuffer, _swapChainImageViews[imageIndex]);
+
+		Vulkan::Image::transitionImage(commandBuffer, _swapChainImages[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
 
 	void App::ClearBackground(VkCommandBuffer commandBuffer)
 	{
-		VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
+		/*VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
 		VkImageSubresourceRange clearRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
-		vkCmdClearColorImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+		vkCmdClearColorImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);*/
+
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
+		vkCmdDispatch(commandBuffer, _drawImageExtent.width / 16, _drawImageExtent.height / 16, 1);
+	}
+
+	void App::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+	{
+		VK_CHECK(vkResetFences(_logicalDevice, 1, &_immFence));
+		VK_CHECK(vkResetCommandBuffer(_immCommandBuffer, 0));
+
+		VkCommandBuffer cmd = _immCommandBuffer;
+
+		VkCommandBufferBeginInfo beginInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+			.pInheritanceInfo = nullptr,
+		};
+
+		VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+		function(cmd);
+
+		VK_CHECK(vkEndCommandBuffer(cmd));
+
+		VkCommandBufferSubmitInfo cmdinfo = Vulkan::Init::commandBufferSubmitInfo(cmd);
+		VkSubmitInfo2 submit = Vulkan::Init::submitInfo2(cmdinfo, nullptr, nullptr);
+
+		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immFence));
+
+		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_immFence, true, UINT64_MAX));
 	}
 }

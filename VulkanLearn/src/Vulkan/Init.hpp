@@ -66,18 +66,18 @@ namespace Vulkan::Init
 
 	inline static VkSubmitInfo2 submitInfo2(
 		const VkCommandBufferSubmitInfo& commandBufferInfo, 
-		const VkSemaphoreSubmitInfo& waitSemaphoreInfo, 
-		const VkSemaphoreSubmitInfo& signalSemaphoreInfo)
+		const VkSemaphoreSubmitInfo* pWaitSemaphore, 
+		const VkSemaphoreSubmitInfo* pSignalSemaphoreInfo)
 	{
 		return
 		{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
 			.waitSemaphoreInfoCount = 1,
-			.pWaitSemaphoreInfos = &waitSemaphoreInfo,
+			.pWaitSemaphoreInfos = pWaitSemaphore,
 			.commandBufferInfoCount = 1,
 			.pCommandBufferInfos = &commandBufferInfo,
 			.signalSemaphoreInfoCount = 1,
-			.pSignalSemaphoreInfos = &signalSemaphoreInfo,
+			.pSignalSemaphoreInfos = pSignalSemaphoreInfo,
 		};
 	}
 
@@ -135,6 +135,40 @@ namespace Vulkan::Init
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
 			.format = format,
 			.subresourceRange = Vulkan::Init::imageSubresourceRange(aspectFlags),
+		};
+	}
+
+	inline static VkRenderingAttachmentInfo attachmentInfo(VkImageView view, VkClearValue* clear, VkImageLayout layout)
+	{
+		VkRenderingAttachmentInfo colorAttachment
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+			.pNext = nullptr,
+			.imageView = view,
+			.imageLayout = layout,
+			.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+		};
+
+		if (clear) {
+			colorAttachment.clearValue = *clear;
+		}
+
+		return colorAttachment;
+	}
+
+	inline static VkRenderingInfo renderingInfo(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachment, VkRenderingAttachmentInfo* depthAttachment)
+	{
+		return
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+			.pNext = nullptr,
+			.renderArea = VkRect2D{ VkOffset2D { 0, 0 }, renderExtent },
+			.layerCount = 1,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = colorAttachment,
+			.pDepthAttachment = depthAttachment,
+			.pStencilAttachment = nullptr,
 		};
 	}
 }
