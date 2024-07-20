@@ -66,17 +66,19 @@ namespace Vulkan::Init
 
 	inline static VkSubmitInfo2 submitInfo2(
 		const VkCommandBufferSubmitInfo& commandBufferInfo, 
-		const VkSemaphoreSubmitInfo* pWaitSemaphore, 
-		const VkSemaphoreSubmitInfo* pSignalSemaphoreInfo)
+		const VkSemaphoreSubmitInfo* pWaitSemaphoreInfo, 
+		const VkSemaphoreSubmitInfo* pSignalSemaphoreInfo,
+		uint32_t waitSemaphoreCount = 1,
+		uint32_t signalSemaphoreCount = 1)
 	{
 		return
 		{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-			.waitSemaphoreInfoCount = 1,
-			.pWaitSemaphoreInfos = pWaitSemaphore,
+			.waitSemaphoreInfoCount = pWaitSemaphoreInfo ? waitSemaphoreCount : 0,
+			.pWaitSemaphoreInfos = pWaitSemaphoreInfo,
 			.commandBufferInfoCount = 1,
 			.pCommandBufferInfos = &commandBufferInfo,
-			.signalSemaphoreInfoCount = 1,
+			.signalSemaphoreInfoCount = pSignalSemaphoreInfo ? signalSemaphoreCount : 0,
 			.pSignalSemaphoreInfos = pSignalSemaphoreInfo,
 		};
 	}
@@ -169,6 +171,25 @@ namespace Vulkan::Init
 			.pColorAttachments = colorAttachment,
 			.pDepthAttachment = depthAttachment,
 			.pStencilAttachment = nullptr,
+		};
+	}
+
+	inline static VkPipelineShaderStageCreateInfo  pipelineShaderStageCreateInfo(VkShaderModule shaderModule, VkShaderStageFlagBits stage)
+	{
+		return
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = stage,
+			.module = shaderModule,
+			.pName = "main",
+		};
+	}
+
+	inline static VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo()
+	{
+		return
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
 		};
 	}
 }

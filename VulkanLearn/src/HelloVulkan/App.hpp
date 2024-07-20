@@ -19,6 +19,23 @@
 
 namespace HelloVulkan
 {
+	struct ComputePushConstants
+	{
+		glm::vec4 Data1;
+		glm::vec4 Data2;
+		glm::vec4 Data3;
+		glm::vec4 Data4;
+	};
+
+	struct ComputeEffect {
+		const char* Name;
+
+		VkPipeline Pipeline;
+		VkPipelineLayout Layout;
+
+		ComputePushConstants Data;
+	};
+
 	struct Image
 	{
 		VkImage Image;
@@ -67,9 +84,6 @@ namespace HelloVulkan
 		inline void SetResized(bool resized, uint32_t width, uint32_t height);
 		void OnScroll(double yoffset);
 
-		inline const Engine::Camera& GetCamera() const { return _camera; }
-		inline Engine::Camera& GetCamera() { return _camera; }
-
 		inline Frame& Frame() { return _frames[_currentFrame]; }
 
 	private:
@@ -90,15 +104,22 @@ namespace HelloVulkan
 		void CreateDescriptors();
 		void CreatePipeline();
 		void InitializeImgui();
+		void CreateMeshPipeline();
 
 		void DrawFrame();
 		void DrawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
-		void ClearBackground(VkCommandBuffer commandBuffer);
+		void DrawBackground(VkCommandBuffer commandBuffer);
+		void DrawGeometry(VkCommandBuffer commandBuffer);
 
 		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+
+		Vulkan::AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+		void DestroyBuffer(const Vulkan::AllocatedBuffer& buffer);
+		Vulkan::GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vulkan::Vertex> vertices);
+		void UploadDefaultMeshData();
 
 	private:
 		bool _doRender = true;
@@ -123,14 +144,13 @@ namespace HelloVulkan
 
 		HelloVulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT];
 		size_t _currentFrame = 0;
-		bool _framebufferResized = false;
+		bool _resized = false;
 				 
 		uint32_t _width = WIDTH;
 		uint32_t _height = HEIGHT;
 		float _deltaTime = 0.0f;
 		float _lastFrame = 0.0f;
 		double _fps = 0.0f;
-		Engine::Camera _camera;
 
 		Vulkan::Common::DeletionQueue DeletionQueue;
 		VmaAllocator _allocator = nullptr;
@@ -141,11 +161,18 @@ namespace HelloVulkan
 		Vulkan::Common::DescriptorAllocator _descriptorAllocator = {};
 		VkDescriptorSet _descriptorSet = VK_NULL_HANDLE;
 		VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
-		VkPipeline _pipeline = VK_NULL_HANDLE;
+
+		std::vector<ComputeEffect> _backgroundEffects;
+		int _currentBackgroundEffect = 0;
+
 		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
 
 		VkFence _immFence;
 		VkCommandBuffer _immCommandBuffer;
 		VkCommandPool _immCommandPool;
+
+		VkPipelineLayout _meshPipelineLayout;
+		VkPipeline _meshPipeline;
+		Vulkan::GPUMeshBuffers _rectangle;
 	};
 }

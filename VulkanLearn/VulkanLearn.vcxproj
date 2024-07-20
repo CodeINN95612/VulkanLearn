@@ -151,6 +151,7 @@
     <ClInclude Include="src\Vulkan\Common\DeletionQueue.hpp" />
     <ClInclude Include="src\Vulkan\Common\DescriptorAllocator.hpp" />
     <ClInclude Include="src\Vulkan\Common\DescriptorLayoutBuilder.hpp" />
+    <ClInclude Include="src\Vulkan\Common\GraphicsPipelineBuilder.hpp" />
     <ClInclude Include="src\Vulkan\Image.hpp" />
     <ClInclude Include="src\Vulkan\Init.hpp" />
     <ClInclude Include="src\Vulkan\Pipeline.hpp" />
@@ -161,6 +162,8 @@
     <None Include="assets\shaders\shader.comp" />
     <None Include="assets\shaders\shader.frag" />
     <None Include="assets\shaders\shader.vert" />
+    <None Include="assets\shaders\triangle.frag" />
+    <None Include="assets\shaders\triangle.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

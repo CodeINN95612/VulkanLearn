@@ -101,10 +101,15 @@
     <ClInclude Include="src\Engine\Model.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\Vulkan\Common\GraphicsPipelineBuilder.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\shader.vert" />
     <None Include="assets\shaders\shader.frag" />
     <None Include="assets\shaders\shader.comp" />
+    <None Include="assets\shaders\triangle.vert" />
+    <None Include="assets\shaders\triangle.frag" />
   </ItemGroup>
 </Project>
