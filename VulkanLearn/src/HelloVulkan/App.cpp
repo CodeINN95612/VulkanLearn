@@ -111,8 +111,8 @@ namespace HelloVulkan
 		}
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		//glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+		//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 		_window = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
 		//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetWindowUserPointer(_window, this);
@@ -180,12 +180,16 @@ namespace HelloVulkan
 	{
 		spdlog::info("Limpiando");
 
-		for (auto& mesh : _testMeshes) {
-			DestroyBuffer(mesh->MeshBuffers.IndexBuffer);
-			DestroyBuffer(mesh->MeshBuffers.VertexBuffer);
-		}
+		vkDestroyImageView(_logicalDevice, _depthImage.ImageView, nullptr);
+		vmaDestroyImage(_allocator, _depthImage.Image, _depthImage.Allocation);
+
+		vkDestroyImageView(_logicalDevice, _drawImage.ImageView, nullptr);
+		vmaDestroyImage(_allocator, _drawImage.Image, _drawImage.Allocation);
 
 		DeletionQueue.Flush();
+
+		vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
+		_descriptorAllocator.DestroyPool(_logicalDevice);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 			vkDestroySemaphore(_logicalDevice, _frames[i].ImageAvailableSemaphore, nullptr);
@@ -226,6 +230,10 @@ namespace HelloVulkan
 
 	void App::OnImGuiRender()
 	{
+		if (_resized) {
+			RecreateSwapChain();
+		}
+
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -265,7 +273,6 @@ namespace HelloVulkan
 
 			ImGui::Text("Width: %d", _width);
 			ImGui::Text("Height: %d", _height);
-
 		}
 		ImGui::End();
 
@@ -351,6 +358,13 @@ namespace HelloVulkan
 		_swapChainImageViews = data.imageViews;
 
 		//Draw Image
+		if (_drawImage.Image != VK_NULL_HANDLE)
+		{
+			vkDestroyImageView(_logicalDevice, _drawImage.ImageView, nullptr);
+			vmaDestroyImage(_allocator, _drawImage.Image, _drawImage.Allocation);
+			_drawImage.Image = VK_NULL_HANDLE;
+		}
+
 		VkExtent3D drawImageExtent
 		{
 			.width = _width,
@@ -387,6 +401,13 @@ namespace HelloVulkan
 		VK_CHECK(vkCreateImageView(_logicalDevice, &drawImageViewInfo, nullptr, &_drawImage.ImageView));
 
 		//Depth Image
+		if (_depthImage.Image != VK_NULL_HANDLE)
+		{
+			vkDestroyImageView(_logicalDevice, _depthImage.ImageView, nullptr);
+			vmaDestroyImage(_allocator, _depthImage.Image, _depthImage.Allocation);
+			_depthImage.Image = VK_NULL_HANDLE;
+		}
+
 		_depthImage.ImageFormat = VK_FORMAT_D32_SFLOAT;
 		_depthImage.ImageExtent = drawImageExtent;
 		VkImageUsageFlags depthImageUsages = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -401,16 +422,6 @@ namespace HelloVulkan
 			VK_IMAGE_ASPECT_DEPTH_BIT);
 
 		VK_CHECK(vkCreateImageView(_logicalDevice, &depthImageViewInfo, nullptr, &_depthImage.ImageView));
-
-		DeletionQueue.Push([=]()
-			{
-				vkDestroyImageView(_logicalDevice, _depthImage.ImageView, nullptr);
-				vmaDestroyImage(_allocator, _depthImage.Image, _depthImage.Allocation);
-
-				vkDestroyImageView(_logicalDevice, _drawImage.ImageView, nullptr);
-				vmaDestroyImage(_allocator, _drawImage.Image, _drawImage.Allocation);
-			}
-		);
 	}
 
 	void App::CreateCommands()
@@ -467,22 +478,26 @@ namespace HelloVulkan
 
 	void App::RecreateSwapChain()
 	{
-		return;
-
 		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
 
 		CleanUpSwapChain();
 
 		CreateSwapChain();
+
+		vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
+		_descriptorAllocator.DestroyPool(_logicalDevice);
+		CreateDescriptors();
+
+		_resized = false;
 	}
 
 	void App::CleanUpSwapChain()
 	{
+		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
+
 		for (auto imageView : _swapChainImageViews) {
 			vkDestroyImageView(_logicalDevice, imageView, nullptr);
 		}
-
-		vkDestroySwapchainKHR(_logicalDevice, _swapChain, nullptr);
 	}
 
 	void App::CreateDescriptors()
@@ -518,13 +533,6 @@ namespace HelloVulkan
 		};
 
 		vkUpdateDescriptorSets(_logicalDevice, 1, &writeDescriptorSet, 0, nullptr);
-
-		DeletionQueue.Push([=]()
-			{
-				vkDestroyDescriptorSetLayout(_logicalDevice, _descriptorSetLayout, nullptr);
-				_descriptorAllocator.DestroyPool(_logicalDevice);
-			}
-		);
 	}
 
 	void App::CreatePipeline()
@@ -572,7 +580,7 @@ namespace HelloVulkan
 			.Data
 			{
 				.Data1 = glm::vec4(0.007f, 0.007f, 0.007f, 1),
-				.Data2 = glm::vec4(0.005f, 0.005f, 0.005f, 1),
+				.Data2 = glm::vec4(0.005f, 0.007f, 0.007f, 1),
 			}
 		};
 
@@ -696,7 +704,7 @@ namespace HelloVulkan
 			.SetPolygonMode(VK_POLYGON_MODE_FILL)
 			.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
 			.SetMultisamplingNone()
-			.DisableBlending()
+			.enableBlendingAlphablend()
 			.EnableDepthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL)
 			.SetColorAttachmentFormat(_drawImage.ImageFormat)
 			.SetDepthFormat(_depthImage.ImageFormat)
@@ -722,7 +730,7 @@ namespace HelloVulkan
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapChain, UINT64_MAX, Frame().ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-			RecreateSwapChain();
+			_resized = true;
 			return;
 		}
 		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
@@ -731,8 +739,8 @@ namespace HelloVulkan
 
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &Frame().Fence));
 
-		_drawImageExtent.width = _drawImage.ImageExtent.width;
-		_drawImageExtent.height = _drawImage.ImageExtent.height;
+		_drawImageExtent.width = std::min(_swapChainExtent.width, _drawImage.ImageExtent.width);
+		_drawImageExtent.height = std::min(_swapChainExtent.height, _drawImage.ImageExtent.height);
 
 		VkCommandBuffer currentCommandBuffer = Frame().CommandBuffer;
 
@@ -757,9 +765,8 @@ namespace HelloVulkan
 		VkPresentInfoKHR presentInfo = Vulkan::Init::presentInfoKHR(&_swapChain, &imageIndex, &Frame().RenderFinishedSemaphore);
 
 		result = vkQueuePresentKHR(_presentQueue, &presentInfo);
-		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _resized) {
-			_resized = false;
-			RecreateSwapChain();
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+			_resized = true;
 		}
 		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
 			throw std::exception("No fue posible presentar en la cola de presentacion");
@@ -819,19 +826,19 @@ namespace HelloVulkan
 
 	void App::DrawBackground(VkCommandBuffer commandBuffer)
 	{
-		/*VkClearColorValue clearColor = { {0.005f, 0.005f, 0.005f, 1.0f} };
+		VkClearColorValue clearColor = { {0.007f, 0.007f, 0.007f, 1.0f} };
 		VkImageSubresourceRange clearRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
-		vkCmdClearColorImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);*/
+		vkCmdClearColorImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
 
-		ComputeEffect& effect = _backgroundEffects[_currentBackgroundEffect];
+		/*ComputeEffect& effect = _backgroundEffects[_currentBackgroundEffect];
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, effect.Pipeline);
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
 
 		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.Data);
 
-		vkCmdDispatch(commandBuffer, _drawImageExtent.width / 16, _drawImageExtent.height / 16, 1);
+		vkCmdDispatch(commandBuffer, _drawImageExtent.width / 16, _drawImageExtent.height / 16, 1);*/
 	}
 
 	void App::DrawGeometry(VkCommandBuffer commandBuffer)
@@ -882,27 +889,21 @@ namespace HelloVulkan
 
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		Vulkan::GPUDrawPushConstants pushConstants
-		{
-			.ModelMatrix = glm::mat4(1.0f),
-			.VertexBuffer = _rectangle.VertexBufferAddress,
-		};
 
-		/*vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Vulkan::GPUDrawPushConstants), &pushConstants);
-		vkCmdBindIndexBuffer(commandBuffer, _rectangle.IndexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
-
-		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);*/
-
-		static float rotation = 0.0f;
-
-		pushConstants.VertexBuffer = _testMeshes[_currentMesh]->MeshBuffers.VertexBufferAddress;
 
 		glm::mat4 view = glm::lookAt(glm::vec3{ 0, 5, 10 }, glm::vec3{ 0, 0, 0 }, glm::vec3{ 0, 1, 0 });
 		glm::mat4 projection = glm::perspective(glm::radians(45.f), (float)_drawImageExtent.width / (float)_drawImageExtent.height, 0.1f, 100.f);
-
 		projection[1][1] *= -1;
 
-		pushConstants.ModelMatrix = projection * view * glm::rotate(glm::mat4(1), glm::radians(rotation), glm::vec3(0, 1, 0));
+		static float rotation = 0.0f;
+		glm::mat4 model = projection * glm::rotate(view, glm::radians(rotation), glm::vec3(0, 1, 0));
+		rotation += 0.1f;
+
+		Vulkan::GPUDrawPushConstants pushConstants
+		{
+			.ModelMatrix = model,
+			.VertexBuffer = _testMeshes[_currentMesh]->MeshBuffers.VertexBufferAddress
+		};
 
 		vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Vulkan::GPUDrawPushConstants), &pushConstants);
 		vkCmdBindIndexBuffer(commandBuffer, _testMeshes[_currentMesh]->MeshBuffers.IndexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -910,7 +911,6 @@ namespace HelloVulkan
 		vkCmdDrawIndexed(commandBuffer, _testMeshes[_currentMesh]->Surfaces[0].Count, 1, _testMeshes[_currentMesh]->Surfaces[0].StartIndex, 0, 0);
 
 		vkCmdEndRendering(commandBuffer);
-		rotation += 0.01f;
 	}
 
 	void App::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
@@ -1028,33 +1028,12 @@ namespace HelloVulkan
 	{
 		_testMeshes = Vulkan::Loader::loadGltfMeshes(this, "assets/models/basicmesh.glb").value();
 
-		std::array<Vulkan::Vertex, 4> vertices;
-
-		vertices[0].Position = {  0.5, -0.5,  0 };
-		vertices[1].Position = {  0.5,  0.5,  0 };
-		vertices[2].Position = { -0.5, -0.5,  0 };
-		vertices[3].Position = { -0.5,  0.5,  0 };
-
-		vertices[0].Color = { 0,   0,   1,   1 };
-		vertices[1].Color = { 0.5, 0.5, 0.5 ,1 };
-		vertices[2].Color = { 1,   0,   0,   1 };
-		vertices[3].Color = { 0,   1,   0,   1 };
-
-		std::array<uint32_t, 6> indeces;
-		indeces[0] = 0;
-		indeces[1] = 1;
-		indeces[2] = 2;
-
-		indeces[3] = 2;
-		indeces[4] = 1;
-		indeces[5] = 3;
-
-		_rectangle = UploadMesh(indeces, vertices);
-
-		DeletionQueue.Push([&]() 
+		DeletionQueue.Push([=]()
 			{
-				DestroyBuffer(_rectangle.IndexBuffer);
-				DestroyBuffer(_rectangle.VertexBuffer);
+				for (auto& mesh : _testMeshes) {
+					DestroyBuffer(mesh->MeshBuffers.IndexBuffer);
+					DestroyBuffer(mesh->MeshBuffers.VertexBuffer);
+				}
 			}
 		);
 	}

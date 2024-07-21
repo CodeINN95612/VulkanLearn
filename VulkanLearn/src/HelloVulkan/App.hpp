@@ -177,7 +177,6 @@ namespace HelloVulkan
 
 		VkPipelineLayout _meshPipelineLayout;
 		VkPipeline _meshPipeline;
-		Vulkan::GPUMeshBuffers _rectangle;
 
 		std::vector<std::shared_ptr<Vulkan::Loader::MeshAsset>> _testMeshes;
 		int _currentMesh = 2;
