@@ -6,10 +6,10 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/transform.hpp>
 #include <glm/gtx/hash.hpp>
 
 #include <stb/stb_image.h>
@@ -180,6 +180,11 @@ namespace HelloVulkan
 	{
 		spdlog::info("Limpiando");
 
+		for (auto& mesh : _testMeshes) {
+			DestroyBuffer(mesh->MeshBuffers.IndexBuffer);
+			DestroyBuffer(mesh->MeshBuffers.VertexBuffer);
+		}
+
 		DeletionQueue.Flush();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -279,6 +284,13 @@ namespace HelloVulkan
 		}
 		ImGui::End();
 
+		if (ImGui::Begin("Mesh")) {
+			ImGui::Text("Selected mesh: ", _testMeshes[_currentMesh]->Name);
+
+			ImGui::SliderInt("Index", &_currentMesh, 0, uint32_t(_testMeshes.size() - 1));
+		}
+		ImGui::End();
+
 		//ImGui::ShowDemoWindow();
 
 		ImGui::End(); //Dockspace
@@ -338,6 +350,7 @@ namespace HelloVulkan
 		_swapChainImages = data.images;
 		_swapChainImageViews = data.imageViews;
 
+		//Draw Image
 		VkExtent3D drawImageExtent
 		{
 			.width = _width,
@@ -358,13 +371,13 @@ namespace HelloVulkan
 			drawImageUsages,
 			_drawImage.ImageExtent);
 
-		VmaAllocationCreateInfo drawImageAllocInfo
+		VmaAllocationCreateInfo imageAllocInfo
 		{
 			.usage = VMA_MEMORY_USAGE_GPU_ONLY,
 			.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 		};
 
-		VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &drawImageAllocInfo, &_drawImage.Image, &_drawImage.Allocation, nullptr));
+		VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &imageAllocInfo, &_drawImage.Image, &_drawImage.Allocation, nullptr));
 
 		VkImageViewCreateInfo drawImageViewInfo = Vulkan::Init::imageViewCreateInfo(
 			_drawImage.ImageFormat,
@@ -373,8 +386,27 @@ namespace HelloVulkan
 
 		VK_CHECK(vkCreateImageView(_logicalDevice, &drawImageViewInfo, nullptr, &_drawImage.ImageView));
 
+		//Depth Image
+		_depthImage.ImageFormat = VK_FORMAT_D32_SFLOAT;
+		_depthImage.ImageExtent = drawImageExtent;
+		VkImageUsageFlags depthImageUsages = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+		VkImageCreateInfo depthImageInfo = Vulkan::Init::imageCreateInfo(_depthImage.ImageFormat, depthImageUsages, drawImageExtent);
+
+		vmaCreateImage(_allocator, &depthImageInfo, &imageAllocInfo, &_depthImage.Image, &_depthImage.Allocation, nullptr);
+
+		VkImageViewCreateInfo depthImageViewInfo = Vulkan::Init::imageViewCreateInfo(
+			_depthImage.ImageFormat, 
+			_depthImage.Image, 
+			VK_IMAGE_ASPECT_DEPTH_BIT);
+
+		VK_CHECK(vkCreateImageView(_logicalDevice, &depthImageViewInfo, nullptr, &_depthImage.ImageView));
+
 		DeletionQueue.Push([=]()
 			{
+				vkDestroyImageView(_logicalDevice, _depthImage.ImageView, nullptr);
+				vmaDestroyImage(_allocator, _depthImage.Image, _depthImage.Allocation);
+
 				vkDestroyImageView(_logicalDevice, _drawImage.ImageView, nullptr);
 				vmaDestroyImage(_allocator, _drawImage.Image, _drawImage.Allocation);
 			}
@@ -665,9 +697,9 @@ namespace HelloVulkan
 			.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
 			.SetMultisamplingNone()
 			.DisableBlending()
-			.DisableDepthTesting()
+			.EnableDepthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL)
 			.SetColorAttachmentFormat(_drawImage.ImageFormat)
-			.SetDepthFormat(VK_FORMAT_UNDEFINED)
+			.SetDepthFormat(_depthImage.ImageFormat)
 			.Build(_logicalDevice);
 
 		vkDestroyShaderModule(_logicalDevice, vertexShader, nullptr);
@@ -738,7 +770,7 @@ namespace HelloVulkan
 
 	void App::DrawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView)
 	{
-		VkRenderingAttachmentInfo colorAttachment = Vulkan::Init::attachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		VkRenderingAttachmentInfo colorAttachment = Vulkan::Init::colorAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		VkRenderingInfo renderInfo = Vulkan::Init::renderingInfo(_swapChainExtent, &colorAttachment, nullptr);
 
 		vkCmdBeginRendering(commandBuffer, &renderInfo);
@@ -765,6 +797,8 @@ namespace HelloVulkan
 		DrawBackground(commandBuffer);
 
 		Vulkan::Image::transitionImage(commandBuffer, _drawImage.Image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+		Vulkan::Image::transitionImage(commandBuffer, _depthImage.Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 		DrawGeometry(commandBuffer);
 
@@ -802,15 +836,19 @@ namespace HelloVulkan
 
 	void App::DrawGeometry(VkCommandBuffer commandBuffer)
 	{
-		VkRenderingAttachmentInfo colorAttachment = Vulkan::Init::attachmentInfo(
+		VkRenderingAttachmentInfo colorAttachment = Vulkan::Init::colorAttachmentInfo(
 			_drawImage.ImageView, 
 			nullptr, 
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
+		VkRenderingAttachmentInfo depthAttachment = Vulkan::Init::depthAttachmentInfo(
+			_depthImage.ImageView,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
 		VkRenderingInfo renderInfo = Vulkan::Init::renderingInfo(
 			_drawImageExtent, 
 			&colorAttachment, 
-			nullptr);
+			&depthAttachment);
 
 		vkCmdBeginRendering(commandBuffer, &renderInfo);
 
@@ -822,8 +860,8 @@ namespace HelloVulkan
 			.y = 0,
 			.width = float(_drawImageExtent.width),
 			.height = float(_drawImageExtent.height),
-			.minDepth = 0.f,
-			.maxDepth = 1.f,
+			.minDepth = 1.f,
+			.maxDepth = 0.f,
 		};
 
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
@@ -846,16 +884,33 @@ namespace HelloVulkan
 
 		Vulkan::GPUDrawPushConstants pushConstants
 		{
-			.modelMatrix = glm::mat4(1.0f),
-			.vertexBuffer = _rectangle.vertexBufferAddress,
+			.ModelMatrix = glm::mat4(1.0f),
+			.VertexBuffer = _rectangle.VertexBufferAddress,
 		};
 
-		vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Vulkan::GPUDrawPushConstants), &pushConstants);
-		vkCmdBindIndexBuffer(commandBuffer, _rectangle.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		/*vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Vulkan::GPUDrawPushConstants), &pushConstants);
+		vkCmdBindIndexBuffer(commandBuffer, _rectangle.IndexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);*/
+
+		static float rotation = 0.0f;
+
+		pushConstants.VertexBuffer = _testMeshes[_currentMesh]->MeshBuffers.VertexBufferAddress;
+
+		glm::mat4 view = glm::lookAt(glm::vec3{ 0, 5, 10 }, glm::vec3{ 0, 0, 0 }, glm::vec3{ 0, 1, 0 });
+		glm::mat4 projection = glm::perspective(glm::radians(45.f), (float)_drawImageExtent.width / (float)_drawImageExtent.height, 0.1f, 100.f);
+
+		projection[1][1] *= -1;
+
+		pushConstants.ModelMatrix = projection * view * glm::rotate(glm::mat4(1), glm::radians(rotation), glm::vec3(0, 1, 0));
+
+		vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Vulkan::GPUDrawPushConstants), &pushConstants);
+		vkCmdBindIndexBuffer(commandBuffer, _testMeshes[_currentMesh]->MeshBuffers.IndexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
+
+		vkCmdDrawIndexed(commandBuffer, _testMeshes[_currentMesh]->Surfaces[0].Count, 1, _testMeshes[_currentMesh]->Surfaces[0].StartIndex, 0, 0);
 
 		vkCmdEndRendering(commandBuffer);
+		rotation += 0.01f;
 	}
 
 	void App::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
@@ -904,14 +959,14 @@ namespace HelloVulkan
 		};
 
 		Vulkan::AllocatedBuffer newBuffer;
-		VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+		VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.Buffer, &newBuffer.Allocation, &newBuffer.Info));
 
 		return newBuffer;
 	}
 
 	void App::DestroyBuffer(const Vulkan::AllocatedBuffer& buffer)
 	{
-		vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
+		vmaDestroyBuffer(_allocator, buffer.Buffer, buffer.Allocation);
 	}
 
 	Vulkan::GPUMeshBuffers App::UploadMesh(std::span<uint32_t> indices, std::span<Vulkan::Vertex> vertices)
@@ -921,7 +976,7 @@ namespace HelloVulkan
 
 		Vulkan::GPUMeshBuffers newSurface{};
 
-		newSurface.vertexBuffer = CreateBuffer(vertexBufferSize, 
+		newSurface.VertexBuffer = CreateBuffer(vertexBufferSize, 
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
 				| VK_BUFFER_USAGE_TRANSFER_DST_BIT 
 				| VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -930,12 +985,12 @@ namespace HelloVulkan
 		VkBufferDeviceAddressInfo deviceAdressInfo
 		{ 
 			.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-			.buffer = newSurface.vertexBuffer.buffer 
+			.buffer = newSurface.VertexBuffer.Buffer 
 		};
 
-		newSurface.vertexBufferAddress = vkGetBufferDeviceAddress(_logicalDevice, &deviceAdressInfo);
+		newSurface.VertexBufferAddress = vkGetBufferDeviceAddress(_logicalDevice, &deviceAdressInfo);
 
-		newSurface.indexBuffer = CreateBuffer(indexBufferSize, 
+		newSurface.IndexBuffer = CreateBuffer(indexBufferSize, 
 			VK_BUFFER_USAGE_INDEX_BUFFER_BIT 
 				| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VMA_MEMORY_USAGE_GPU_ONLY);
@@ -945,7 +1000,7 @@ namespace HelloVulkan
 			VMA_MEMORY_USAGE_CPU_ONLY);
 
 		//Stagin Buffer
-		void* data = staging.allocation->GetMappedData();
+		void* data = staging.Allocation->GetMappedData();
 		memcpy(data, vertices.data(), vertexBufferSize);
 		memcpy((char*)data + vertexBufferSize, indices.data(), indexBufferSize);
 
@@ -955,14 +1010,14 @@ namespace HelloVulkan
 			vertexCopy.srcOffset = 0;
 			vertexCopy.size = vertexBufferSize;
 
-			vkCmdCopyBuffer(cmd, staging.buffer, newSurface.vertexBuffer.buffer, 1, &vertexCopy);
+			vkCmdCopyBuffer(cmd, staging.Buffer, newSurface.VertexBuffer.Buffer, 1, &vertexCopy);
 
 			VkBufferCopy indexCopy{ 0 };
 			indexCopy.dstOffset = 0;
 			indexCopy.srcOffset = vertexBufferSize;
 			indexCopy.size = indexBufferSize;
 
-			vkCmdCopyBuffer(cmd, staging.buffer, newSurface.indexBuffer.buffer, 1, &indexCopy);
+			vkCmdCopyBuffer(cmd, staging.Buffer, newSurface.IndexBuffer.Buffer, 1, &indexCopy);
 		});
 
 		DestroyBuffer(staging);
@@ -971,17 +1026,19 @@ namespace HelloVulkan
 
 	void App::UploadDefaultMeshData()
 	{
+		_testMeshes = Vulkan::Loader::loadGltfMeshes(this, "assets/models/basicmesh.glb").value();
+
 		std::array<Vulkan::Vertex, 4> vertices;
 
-		vertices[0].position = {  0.5, -0.5,  0 };
-		vertices[1].position = {  0.5,  0.5,  0 };
-		vertices[2].position = { -0.5, -0.5,  0 };
-		vertices[3].position = { -0.5,  0.5,  0 };
+		vertices[0].Position = {  0.5, -0.5,  0 };
+		vertices[1].Position = {  0.5,  0.5,  0 };
+		vertices[2].Position = { -0.5, -0.5,  0 };
+		vertices[3].Position = { -0.5,  0.5,  0 };
 
-		vertices[0].color = { 0,   0,   1,   1 };
-		vertices[1].color = { 0.5, 0.5, 0.5 ,1 };
-		vertices[2].color = { 1,   0,   0,   1 };
-		vertices[3].color = { 0,   1,   0,   1 };
+		vertices[0].Color = { 0,   0,   1,   1 };
+		vertices[1].Color = { 0.5, 0.5, 0.5 ,1 };
+		vertices[2].Color = { 1,   0,   0,   1 };
+		vertices[3].Color = { 0,   1,   0,   1 };
 
 		std::array<uint32_t, 6> indeces;
 		indeces[0] = 0;
@@ -996,8 +1053,8 @@ namespace HelloVulkan
 
 		DeletionQueue.Push([&]() 
 			{
-				DestroyBuffer(_rectangle.indexBuffer);
-				DestroyBuffer(_rectangle.vertexBuffer);
+				DestroyBuffer(_rectangle.IndexBuffer);
+				DestroyBuffer(_rectangle.VertexBuffer);
 			}
 		);
 	}

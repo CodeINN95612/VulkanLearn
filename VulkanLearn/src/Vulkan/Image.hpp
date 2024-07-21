@@ -22,7 +22,7 @@ namespace Vulkan::Image
 			.oldLayout = currentLayout,
 			.newLayout = newLayout,
 			.image = image,
-			.subresourceRange = Vulkan::Init::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT)
+			.subresourceRange = Vulkan::Init::imageSubresourceRange(aspectMask)
 		};
 
 		VkDependencyInfo depInfo

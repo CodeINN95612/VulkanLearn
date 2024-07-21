@@ -136,11 +136,18 @@ namespace Vulkan::Init
 			.image = image,
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
 			.format = format,
-			.subresourceRange = Vulkan::Init::imageSubresourceRange(aspectFlags),
+			.subresourceRange
+			{
+				.aspectMask = aspectFlags,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			}
 		};
 	}
 
-	inline static VkRenderingAttachmentInfo attachmentInfo(VkImageView view, VkClearValue* clear, VkImageLayout layout)
+	inline static VkRenderingAttachmentInfo colorAttachmentInfo(VkImageView view, VkClearValue* clear, VkImageLayout layout)
 	{
 		VkRenderingAttachmentInfo colorAttachment
 		{
@@ -157,6 +164,26 @@ namespace Vulkan::Init
 		}
 
 		return colorAttachment;
+	}
+
+	inline static VkRenderingAttachmentInfo depthAttachmentInfo(VkImageView view, VkImageLayout layout)
+	{
+		return
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+			.pNext = nullptr,
+			.imageView = view,
+			.imageLayout = layout,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.clearValue
+			{
+				.depthStencil
+				{
+					.depth = 0.f,
+				}
+			}
+		};
 	}
 
 	inline static VkRenderingInfo renderingInfo(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachment, VkRenderingAttachmentInfo* depthAttachment)

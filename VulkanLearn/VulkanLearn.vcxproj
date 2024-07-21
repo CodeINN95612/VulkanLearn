@@ -48,13 +48,19 @@
   <ImportGroup Label="Shared">
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+      Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+      Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+      Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+      Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Deploy|x64'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+      Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+      Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -129,6 +135,9 @@
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\Engine\Model.cpp" />
     <ClCompile Include="src\HelloVulkan\App.cpp" />
+    <ClCompile Include="src\Vulkan\Loader.cpp" />
+    <ClCompile Include="vendor\fastgltf\base64.cpp" />
+    <ClCompile Include="vendor\fastgltf\fastgltf.cpp" />
     <ClCompile Include="vendor\imgui\imgui.cpp" />
     <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
     <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
@@ -136,6 +145,7 @@
     <ClCompile Include="vendor\imgui\imgui_tables.cpp" />
     <ClCompile Include="vendor\imgui\imgui_widgets.cpp" />
     <ClCompile Include="vendor\imgui\vulkan\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="vendor\simdjson\simdjson.cpp" />
     <ClCompile Include="vendor\stb\stb_image.cpp" />
     <ClCompile Include="src\VulkanLearn.cpp" />
     <ClCompile Include="vendor\tinyobjloader\tiny_obj_loader.cpp" />
@@ -154,9 +164,37 @@
     <ClInclude Include="src\Vulkan\Common\GraphicsPipelineBuilder.hpp" />
     <ClInclude Include="src\Vulkan\Image.hpp" />
     <ClInclude Include="src\Vulkan\Init.hpp" />
+    <ClInclude Include="src\Vulkan\Loader.hpp" />
     <ClInclude Include="src\Vulkan\Pipeline.hpp" />
     <ClInclude Include="src\Vulkan\Types.hpp" />
     <ClInclude Include="src\Vulkan\Utils.hpp" />
+    <ClInclude Include="vendor\simdjson\generic\amalgamated.h" />
+    <ClInclude Include="vendor\simdjson\generic\base.h" />
+    <ClInclude Include="vendor\simdjson\generic\dependencies.h" />
+    <ClInclude Include="vendor\simdjson\generic\dom_parser_implementation.h" />
+    <ClInclude Include="vendor\simdjson\generic\json_character_block.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\amalgamated.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\base.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\buf_block_reader.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\dependencies.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\find_next_document_index.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\json_escape_scanner.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\json_minifier.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\json_scanner.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\json_string_scanner.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\json_structural_indexer.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\utf8_lookup4_algorithm.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage1\utf8_validator.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\amalgamated.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\base.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\dependencies.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\json_iterator.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\logger.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\stringparsing.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\structural_iterator.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\tape_builder.h" />
+    <ClInclude Include="vendor\simdjson\generic\stage2\tape_writer.h" />
+    <ClInclude Include="vendor\simdjson\internal\isadetection.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\shader.comp" />

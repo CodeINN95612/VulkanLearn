@@ -16,6 +16,7 @@
 #include "../Vulkan/Common/DescriptorAllocator.hpp"
 #include "../Vulkan/Common/DescriptorLayoutBuilder.hpp"
 #include "../Vulkan/Pipeline.hpp"
+#include "../Vulkan/Loader.hpp"
 
 namespace HelloVulkan
 {
@@ -86,6 +87,8 @@ namespace HelloVulkan
 
 		inline Frame& Frame() { return _frames[_currentFrame]; }
 
+		Vulkan::GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vulkan::Vertex> vertices);
+
 	private:
 		void InitWindow();
 		void InitVulkan();
@@ -118,7 +121,6 @@ namespace HelloVulkan
 
 		Vulkan::AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 		void DestroyBuffer(const Vulkan::AllocatedBuffer& buffer);
-		Vulkan::GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vulkan::Vertex> vertices);
 		void UploadDefaultMeshData();
 
 	private:
@@ -158,6 +160,8 @@ namespace HelloVulkan
 		Image _drawImage = {};
 		VkExtent2D _drawImageExtent = {};
 
+		Image _depthImage;
+
 		Vulkan::Common::DescriptorAllocator _descriptorAllocator = {};
 		VkDescriptorSet _descriptorSet = VK_NULL_HANDLE;
 		VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
@@ -174,5 +178,8 @@ namespace HelloVulkan
 		VkPipelineLayout _meshPipelineLayout;
 		VkPipeline _meshPipeline;
 		Vulkan::GPUMeshBuffers _rectangle;
+
+		std::vector<std::shared_ptr<Vulkan::Loader::MeshAsset>> _testMeshes;
+		int _currentMesh = 2;
 	};
 }

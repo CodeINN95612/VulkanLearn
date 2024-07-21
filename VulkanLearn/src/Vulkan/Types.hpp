@@ -7,6 +7,9 @@
 #include <spdlog/spdlog.h>
 #include <vma/vk_mem_alloc.h>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>
+
 #define VK_CHECK(f) \
 { \
 	VkResult res = (f); \
@@ -21,28 +24,28 @@
 namespace Vulkan
 {
 	struct AllocatedBuffer {
-		VkBuffer buffer;
-		VmaAllocation allocation;
-		VmaAllocationInfo info;
+		VkBuffer Buffer;
+		VmaAllocation Allocation;
+		VmaAllocationInfo Info;
 	};
 
 	struct Vertex {
-		glm::vec3 position;
-		float uv_x;
-		glm::vec3 normal;
-		float uv_y;
-		glm::vec4 color;
+		glm::vec3 Position;
+		float Uv_x;
+		glm::vec3 Normal;
+		float Uv_y;
+		glm::vec4 Color;
 	};
 
 	struct GPUMeshBuffers {
 
-		AllocatedBuffer indexBuffer;
-		AllocatedBuffer vertexBuffer;
-		VkDeviceAddress vertexBufferAddress;
+		AllocatedBuffer IndexBuffer;
+		AllocatedBuffer VertexBuffer;
+		VkDeviceAddress VertexBufferAddress;
 	};
 
 	struct GPUDrawPushConstants {
-		glm::mat4 modelMatrix;
-		VkDeviceAddress vertexBuffer;
+		glm::mat4 ModelMatrix;
+		VkDeviceAddress VertexBuffer;
 	};
 }

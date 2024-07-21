@@ -28,6 +28,7 @@ void main()
 	Vertex v = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
 
 	gl_Position = PushConstants.modelMatrix * vec4(v.position, 1.0f);
+	//gl_Position = vec4(v.position, 1.0f);
 	outColor = v.color;
 	outUV.x = v.uv_x;
 	outUV.y = v.uv_y;
