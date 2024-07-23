@@ -557,7 +557,9 @@ namespace HelloVulkan
 
 		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &computeLayout, nullptr, &_pipelineLayout));
 
-		VkShaderModule computeShaderModule = Vulkan::Pipeline::loadShaderModule(_logicalDevice, "assets/shaders/shader.comp.spv");	
+		_computeShader = Renderer::ComputeShader::Create("Compute Shader", "assets/shaders/shader.comp");
+		VkShaderModule computeShaderModule = _computeShader->BuildModule(_logicalDevice);
+
 		VkPipelineShaderStageCreateInfo shaderStageInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -679,8 +681,9 @@ namespace HelloVulkan
 
 	void App::CreateMeshPipeline()
 	{
-		VkShaderModule vertexShader = Vulkan::Pipeline::loadShaderModule(_logicalDevice, "assets/shaders/triangle.vert.spv");
-		VkShaderModule fragmentShader = Vulkan::Pipeline::loadShaderModule(_logicalDevice, "assets/shaders/triangle.frag.spv");
+		_vertexShader = Renderer::Shader::Create("Vertex Shader", "assets/shaders/triangle.vert", "assets/shaders/triangle.frag");
+		VkShaderModule vertexShaderModule = _vertexShader->BuildModule(_logicalDevice, Renderer::ShaderType::Vertex);
+		VkShaderModule fragmentShaderModule = _vertexShader->BuildModule(_logicalDevice, Renderer::ShaderType::Fragment);
 
 		auto size = sizeof(Vulkan::GPUDrawPushConstants);
 		VkPushConstantRange bufferRange
@@ -699,19 +702,19 @@ namespace HelloVulkan
 		Vulkan::Common::GraphicsPipelineBuilder pipelineBuilder(_meshPipelineLayout);
 
 		_meshPipeline = pipelineBuilder
-			.SetShaders(vertexShader, fragmentShader)
+			.SetShaders(vertexShaderModule, fragmentShaderModule)
 			.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
 			.SetPolygonMode(VK_POLYGON_MODE_FILL)
 			.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
 			.SetMultisamplingNone()
-			.enableBlendingAlphablend()
-			.EnableDepthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL)
+			.EnableBlendingAlphablend()
+			.EnableDepthtest(true, VK_COMPARE_OP_LESS_OR_EQUAL)
 			.SetColorAttachmentFormat(_drawImage.ImageFormat)
 			.SetDepthFormat(_depthImage.ImageFormat)
 			.Build(_logicalDevice);
 
-		vkDestroyShaderModule(_logicalDevice, vertexShader, nullptr);
-		vkDestroyShaderModule(_logicalDevice, fragmentShader, nullptr);
+		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
+		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
 
 		DeletionQueue.Push([=]()
 			{
@@ -867,8 +870,8 @@ namespace HelloVulkan
 			.y = 0,
 			.width = float(_drawImageExtent.width),
 			.height = float(_drawImageExtent.height),
-			.minDepth = 1.f,
-			.maxDepth = 0.f,
+			.minDepth = 0.f,
+			.maxDepth = 1.f,
 		};
 
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
@@ -889,10 +892,8 @@ namespace HelloVulkan
 
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-
-
-		glm::mat4 view = glm::lookAt(glm::vec3{ 0, 5, 10 }, glm::vec3{ 0, 0, 0 }, glm::vec3{ 0, 1, 0 });
-		glm::mat4 projection = glm::perspective(glm::radians(45.f), (float)_drawImageExtent.width / (float)_drawImageExtent.height, 0.1f, 100.f);
+		glm::mat4 view = glm::lookAt(glm::vec3{ 0, 0, -5 }, glm::vec3{ 0, 0, 0 }, glm::vec3{ 0, 1, 0 });
+		glm::mat4 projection = glm::perspective(glm::radians(45.f), (float)_drawImageExtent.width / (float)_drawImageExtent.height, 0.1f, 10000.f);
 		projection[1][1] *= -1;
 
 		static float rotation = 0.0f;

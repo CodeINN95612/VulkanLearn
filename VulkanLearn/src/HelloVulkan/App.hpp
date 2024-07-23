@@ -17,6 +17,7 @@
 #include "../Vulkan/Common/DescriptorLayoutBuilder.hpp"
 #include "../Vulkan/Pipeline.hpp"
 #include "../Vulkan/Loader.hpp"
+#include "../Renderer/Shader.hpp"
 
 namespace HelloVulkan
 {
@@ -166,6 +167,7 @@ namespace HelloVulkan
 		VkDescriptorSet _descriptorSet = VK_NULL_HANDLE;
 		VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
 
+		std::shared_ptr<Renderer::ComputeShader> _computeShader;
 		std::vector<ComputeEffect> _backgroundEffects;
 		int _currentBackgroundEffect = 0;
 
@@ -175,6 +177,8 @@ namespace HelloVulkan
 		VkCommandBuffer _immCommandBuffer;
 		VkCommandPool _immCommandPool;
 
+		std::shared_ptr<Renderer::Shader> _vertexShader;
+		std::shared_ptr<Renderer::Shader> _fragmentShader;
 		VkPipelineLayout _meshPipelineLayout;
 		VkPipeline _meshPipeline;
 

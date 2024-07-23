@@ -180,7 +180,7 @@ namespace Vulkan::Init
 			{
 				.depthStencil
 				{
-					.depth = 0.f,
+					.depth = 1.f,
 				}
 			}
 		};

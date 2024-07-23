@@ -15,11 +15,11 @@ namespace Common::Utils
 		}
 
 		size_t fileSize = (size_t)file.tellg();
-		std::vector<char> buffer(fileSize);
+		std::vector<char> buffer(fileSize + 1);
 
 		file.seekg(0);
 		file.read(buffer.data(), fileSize);
-
+		buffer[fileSize] = '\0';
 		file.close();
 
 		return buffer;

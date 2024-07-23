@@ -23,4 +23,19 @@ namespace Vulkan::Pipeline
 
 		return shaderModule;
 	}
+
+	inline static VkShaderModule createShaderModule(VkDevice device, const std::vector<uint32_t>& code, size_t codeSize)
+	{
+		VkShaderModuleCreateInfo createInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			.codeSize = codeSize,
+			.pCode = code.data(),
+		};
+
+		VkShaderModule shaderModule;
+		VK_CHECK(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule));
+
+		return shaderModule;
+	}
 }
