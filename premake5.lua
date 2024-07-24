@@ -4,6 +4,8 @@ workspace "VulkanLearn"
     startproject "Client"
 
 outputdir = "%{cfg.buildcfg}"
+OutDir = "%{wks.location}/bin/" .. outputdir .. "/%{prj.name}"
+ObjDir = "%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}"
 
 -- Workspace-wide settings
 filter "system:windows"
