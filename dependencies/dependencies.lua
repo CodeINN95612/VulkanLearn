@@ -1,6 +1,6 @@
 function setCommonLibSettings()
     language "C++"
-    cppdialect "C++17"
+    cppdialect "C++20"
     staticruntime "off"
     
     targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
@@ -21,13 +21,13 @@ project "spdlog"
 
     files
     {
-        "%{wks.location}/dependencies/spdlog/include/**.h",
-        "%{wks.location}/dependencies/spdlog/src/**.cpp"
+        "spdlog/spdlog/include/**.h",
+        "spdlog/spdlog/src/**.cpp"
     }
 
     includedirs
     {
-        "%{wks.location}/dependencies/spdlog/include"
+        "spdlog/spdlog/include"
     }
 
     defines
@@ -41,6 +41,6 @@ project "glm"
 
     files
     {
-        "%{wks.location}/dependencies/glm/glm/**.hpp",
-        "%{wks.location}/dependencies/glm/glm/**.inl"
+        "glm/glm/glm/**.hpp",
+        "glm/glm/glm/**.inl"
     }

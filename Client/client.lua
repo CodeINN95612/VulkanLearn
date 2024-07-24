@@ -17,8 +17,8 @@ project "Client"
         "src",
         "%{wks.location}/Renderer/src",
         "%{wks.location}/include",
-        "%{wks.location}/dependencies/spdlog/include",
-        "%{wks.location}/dependencies/glm"
+        "%{wks.location}/dependencies/spdlog/spdlog/include",
+        "%{wks.location}/dependencies/glm/glm"
     }
 
     links
