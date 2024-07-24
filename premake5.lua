@@ -2,15 +2,11 @@ workspace "VulkanLearn"
     architecture "x64"
     configurations { "Debug", "Release" }
     startproject "Client"
+    platforms { "Win64" }
 
 outputdir = "%{cfg.buildcfg}"
 OutDir = "%{wks.location}/bin/" .. outputdir .. "/%{prj.name}"
 ObjDir = "%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}"
-
--- Workspace-wide settings
-filter "system:windows"
-    systemversion "latest"
-    defines { "VKL_WINDOWS" }
 
 filter "configurations:Debug"
     defines { "DEBUG" }
@@ -23,12 +19,11 @@ filter "configurations:Release"
     optimize "on"
 
 group "Dependencies"
-    -- Include dependencies
     include "dependencies/dependencies.lua"
 group ""
 
--- Include Engine project
-include "Renderer/renderer.lua"
+group "Core"
+    include "Renderer/renderer.lua"
+group ""
 
--- Include Client project
 include "Client/client.lua"

@@ -17,7 +17,8 @@ project "Renderer"
         "src",
         "%{wks.location}/include",
         "%{wks.location}/dependencies/spdlog/spdlog/include",
-        "%{wks.location}/dependencies/glm/glm"
+        "%{wks.location}/dependencies/glm/glm",
+        "%{wks.location}/dependencies/imgui"
     }
 
     libdirs
@@ -28,4 +29,5 @@ project "Renderer"
     links
     {
         "vulkan-1",
+        "imgui"
     }
