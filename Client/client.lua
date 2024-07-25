@@ -19,11 +19,13 @@ project "Client"
         "%{wks.location}/include",
         "%{wks.location}/dependencies/spdlog/spdlog/include",
         "%{wks.location}/dependencies/glm/glm",
-        "%{wks.location}/dependencies/imgui"
+        "%{wks.location}/dependencies/imgui",
+        "%{wks.location}/dependencies/glfw/glfw/include",
     }
 
     links
     {
         "Renderer",
-        "imgui"
+        "imgui",
+        "glfw"
     }

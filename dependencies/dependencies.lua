@@ -1,3 +1,6 @@
 include "imgui/imgui.lua"
 include "glm/glm.lua"
 include "spdlog/spdlog.lua"
+include "fastgltf/fastgltf.lua"
+include "simdjson/simdjson.lua"
+include "glfw/glfw.lua"

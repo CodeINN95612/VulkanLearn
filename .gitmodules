@@ -8,3 +8,12 @@
 [submodule "dependencies/glm/glm"]
 	path = dependencies/glm/glm
 	url = https://github.com/g-truc/glm.git
+[submodule "dependencies/fastgltf/fastgltf"]
+	path = dependencies/fastgltf/fastgltf
+	url = https://github.com/spnda/fastgltf
+[submodule "dependencies/simdjson/simdjson"]
+	path = dependencies/simdjson/simdjson
+	url = https://github.com/simdjson/simdjson
+[submodule "dependencies/glfw/glfw"]
+	path = dependencies/glfw/glfw
+	url = https://github.com/glfw/glfw

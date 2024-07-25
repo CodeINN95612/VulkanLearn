@@ -18,7 +18,9 @@ project "Renderer"
         "%{wks.location}/include",
         "%{wks.location}/dependencies/spdlog/spdlog/include",
         "%{wks.location}/dependencies/glm/glm",
-        "%{wks.location}/dependencies/imgui"
+        "%{wks.location}/dependencies/imgui",
+        "%{wks.location}/dependencies/fastgltf/fastgltf/include",
+        "%{wks.location}/dependencies/glfw/glfw/include"
     }
 
     libdirs
@@ -29,5 +31,7 @@ project "Renderer"
     links
     {
         "vulkan-1",
-        "imgui"
+        "imgui",
+        "fastgltf",
+        "glfw"
     }
