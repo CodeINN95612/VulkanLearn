@@ -16,7 +16,6 @@ project "Client"
     {
         "src",
         "%{wks.location}/Renderer/src",
-        "%{wks.location}/include",
         "%{wks.location}/dependencies/spdlog/spdlog/include",
         "%{wks.location}/dependencies/glm/glm",
         "%{wks.location}/dependencies/imgui",
