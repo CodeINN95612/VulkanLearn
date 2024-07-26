@@ -17,3 +17,6 @@
 [submodule "dependencies/glfw/glfw"]
 	path = dependencies/glfw/glfw
 	url = https://github.com/glfw/glfw
+[submodule "dependencies/vk-boostrap/vk-boostrap"]
+	path = dependencies/vk-boostrap/vk-boostrap
+	url = https://github.com/charles-lunarg/vk-bootstrap

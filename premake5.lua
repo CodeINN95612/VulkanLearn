@@ -1,3 +1,5 @@
+include "vulkan_version.lua"
+
 workspace "VulkanLearn"
     architecture "x64"
     configurations { "Debug", "Release" }

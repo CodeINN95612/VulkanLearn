@@ -8,6 +8,7 @@ project "Renderer"
 
     files
     {
+        "include/**.h",
         "src/**.h",
         "src/**.cpp"
     }
@@ -20,10 +21,9 @@ project "Renderer"
         "%{wks.location}/dependencies/imgui",
         "%{wks.location}/dependencies/fastgltf/fastgltf/include",
         "%{wks.location}/dependencies/glfw/glfw/include",
-        "%{VULKAN_SDK}/Include"
+        "%{wks.location}/dependencies/vk-boostrap/vk-boostrap/src",
+        "%{vulkanSDK}/Include"
     }
-
-    vulkanSDK = os.getenv("VULKAN_SDK")
 
     libdirs
     {
@@ -35,7 +35,8 @@ project "Renderer"
         "vulkan-1",
         "imgui",
         "fastgltf",
-        "glfw"
+        "glfw",
+        "vk-boostrap"
     }
 
     filter "configurations:Debug"
@@ -55,3 +56,6 @@ project "Renderer"
             "shaderc_shared",
             "shaderc_combined"
         }
+
+    filter "action:vs*"
+        flags { "MultiProcessorCompile" }

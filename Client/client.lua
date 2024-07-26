@@ -20,11 +20,21 @@ project "Client"
         "%{wks.location}/dependencies/glm/glm",
         "%{wks.location}/dependencies/imgui",
         "%{wks.location}/dependencies/glfw/glfw/include",
+        "%{vulkanSDK}/Include"
+    }
+
+    libdirs
+    {
+        "%{vulkanSDK}/Lib"
     }
 
     links
     {
         "Renderer",
         "imgui",
-        "glfw"
+        "glfw",
+        "vulkan-1"
     }
+
+    filter "action:vs*"
+        flags { "MultiProcessorCompile" }

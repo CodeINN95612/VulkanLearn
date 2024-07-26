@@ -1,0 +1,101 @@
+#include "App.h"
+
+App::App()
+{
+
+}
+
+void App::Run()
+{
+	InitWindow();
+
+	_renderer = vl::core::Renderer::Create(_pWindow, _width, _height);
+	_renderer->Init();
+
+	Loop();
+
+	Shutdown();
+}
+
+void App::InitWindow()
+{
+	spdlog::info("Inicializando Ventana");
+
+	if (glfwInit() == GLFW_FALSE)
+	{
+		throw std::exception("Error al inicializar glfw");
+	}
+
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	//glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	_pWindow = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
+	//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	glfwSetWindowUserPointer(_pWindow, this);
+
+	/*glfwSetFramebufferSizeCallback(_pWindow, [](GLFWwindow* window, int width, int height)
+		{
+			auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+			app->SetResized(true, width, height);
+		}
+	);
+
+	glfwSetScrollCallback(_window, [](GLFWwindow* window, double xoffset, double yoffset)
+		{
+			auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+			app->OnScroll(yoffset);
+		}
+	);*/
+
+	if (!_pWindow) {
+		throw std::exception("Error al crear la ventana");
+	}
+}
+
+void App::Loop()
+{
+	double lastTime = glfwGetTime();
+	double deltaTime = 0.0;
+	double lastFrame = 0.0;
+	int frameCount = 0;
+
+	while (!glfwWindowShouldClose(_pWindow)) {
+		float currentFrame = static_cast<float>(glfwGetTime());
+		deltaTime = currentFrame - lastFrame;
+		lastFrame = currentFrame;
+
+		glfwPollEvents();
+
+		//OnUpdate(_deltaTime);
+
+
+		if (_doRender)
+		{
+			//OnImGuiRender();
+			_renderer->Render();
+		}
+		else
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+
+		// Calculate FPS
+		double currentTime = glfwGetTime();
+		frameCount++;
+		if (currentTime - lastTime >= 0.5) {
+			_fps = frameCount / (currentTime - lastTime);;
+			frameCount = 0;
+			lastTime = currentTime;
+		}
+	}
+
+	_renderer->OnRenderFinished();
+}
+
+void App::Shutdown()
+{
+	_renderer->Shutdown();
+
+	glfwDestroyWindow(_pWindow);
+	glfwTerminate();
+}

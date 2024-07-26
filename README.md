@@ -4,7 +4,12 @@ Learning vulkan
 
 ## How to build?
 
-1. Install Vulkan version [1.3.318.0](sdk.lunarg.com/sdk/download/1.3.283.0/windows/vulkan_sdk.exe) with debug libraries if planning to run on debug mode.
+1. Install Vulkan SDK with debug libraries and Vulkan Memory Allocator. The SDK version this was created with was [1.3.290.0](sdk.lunarg.com/sdk/download/1.3.290.0/windows/vulkan_sdk.exe). In case you want to use a different path then the `VULKAN_SDK` enviroment variable then set the path in `vulkan_version.lua`
+
+```lua
+vulkanSDK = os.getenv("VULKAN_SDK")
+```
+
 2. Clone repo
 
 ```bash

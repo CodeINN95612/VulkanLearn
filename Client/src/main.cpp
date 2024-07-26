@@ -1,13 +1,25 @@
-#include "Test.h"
+#include "App.h"
+#include <exception>
+#include <spdlog/spdlog.h>
 
-#include <imgui/imgui.h>
-
-int main()
+int main(int argc, char** argv)
 {
-	add(1, 2);
-	spdlog::info("Hello, World!");
+    spdlog::set_pattern("[thread %t] [%H:%M:%S] [%^%L%$] %v");
+    spdlog::set_level(spdlog::level::debug);
 
-	auto tmp = ImGui::GetVersion();
+    App app;
+    try
+    {
+        app.Run();
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::critical(e.what());
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+
 
 	return 0;
 }
