@@ -28,3 +28,4 @@ git clone https://github.com/CodeINN95612/VulkanLearn.git --recursive
 - [FastGLFT](https://github.com/spnda/fastgltf)
 - [SimdJson](https://github.com/simdjson/simdjson)
 - [GLFW](https://github.com/glfw/glfw)
+- [VkBoostrap](https://github.com/charles-lunarg/vk-bootstrap)
