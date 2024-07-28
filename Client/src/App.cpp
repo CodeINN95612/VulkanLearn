@@ -8,9 +8,7 @@ App::App()
 void App::Run()
 {
 	InitWindow();
-
-	_renderer = vl::core::Renderer::Create(_pWindow, _width, _height);
-	_renderer->Init();
+	GenerateRendering();
 
 	Loop();
 
@@ -72,7 +70,7 @@ void App::Loop()
 		if (_doRender)
 		{
 			//OnImGuiRender();
-			_renderer->Render();
+			_renderer->OnRender();
 		}
 		else
 		{
@@ -88,8 +86,6 @@ void App::Loop()
 			lastTime = currentTime;
 		}
 	}
-
-	_renderer->OnRenderFinished();
 }
 
 void App::Shutdown()
@@ -98,4 +94,29 @@ void App::Shutdown()
 
 	glfwDestroyWindow(_pWindow);
 	glfwTerminate();
+}
+
+void App::GenerateRendering()
+{
+	_renderer = vl::core::Renderer::Create(_pWindow, _width, _height);
+	_renderer->Init();
+	_renderer->PushBackgroundRenderFunction([](VkCommandBuffer commandBuffer, const vl::core::vulkan::DrawData& drawData)
+		{
+			VkClearColorValue clearColor = { {0.007f, 0.007f, 0.007f, 1.0f} };
+			VkImageSubresourceRange clearRange = vl::core::vulkan::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+			vkCmdClearColorImage(commandBuffer, drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+		}
+	);
+
+	_renderer->PushRenderFunction([](VkCommandBuffer commandBuffer, const vl::core::vulkan::DrawData& drawData)
+		{
+			vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		}
+	);
+
+	/*_renderer->PushImGuiRenderFunction([]()
+		{
+		}
+	);*/
 }

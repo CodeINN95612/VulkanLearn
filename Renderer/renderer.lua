@@ -18,8 +18,9 @@ project "Renderer"
         "src",
         "%{wks.location}/dependencies/spdlog/spdlog/include",
         "%{wks.location}/dependencies/glm/glm",
-        "%{wks.location}/dependencies/imgui",
         "%{wks.location}/dependencies/fastgltf/fastgltf/include",
+        "%{wks.location}/dependencies/imgui",
+        "%{wks.location}/dependencies/imgui/imgui",
         "%{wks.location}/dependencies/glfw/glfw/include",
         "%{wks.location}/dependencies/vk-boostrap/vk-boostrap/src",
         "%{vulkanSDK}/Include"
@@ -33,9 +34,9 @@ project "Renderer"
     links
     {
         "vulkan-1",
-        "imgui",
         "fastgltf",
         "glfw",
+        "imgui",
         "vk-boostrap"
     }
 

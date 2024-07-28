@@ -5,6 +5,10 @@
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
+#include <imgui/imgui.h>
+#include <imgui/backends/imgui_impl_glfw.h>
+#include <imgui/backends/imgui_impl_vulkan.h>
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -54,6 +58,8 @@ namespace vl::core
         _width(width),
         _height(height)
     {
+		_vertexShader = Shader::Create("VertexShader", "assets/shaders/shader.vert", ShaderType::Vertex);
+		_fragmentShader = Shader::Create("VertexShader", "assets/shaders/shader.frag", ShaderType::Fragment);
     }
 
     std::unique_ptr<Renderer> Renderer::Create(GLFWwindow* pWindow, uint32_t width, uint32_t height)
@@ -68,23 +74,16 @@ namespace vl::core
 		_resized = true;
     }
 
-	void Renderer::OnRenderFinished()
-	{
-		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
-	}
-
     void Renderer::Init()
 	{
 		InitVulkan();
 		InitSyncObjects();
 		InitSwapchain();
 		InitCommands();
-		InitDescriptors();
-		InitComputePipeline();
 		InitGraphicsPipeline();
     }
 
-    void Renderer::Render()
+    void Renderer::OnRender()
     {
 		vulkan::Frame& currentFrame = CurrentFrame();
 
@@ -102,8 +101,8 @@ namespace vl::core
 
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &currentFrame.Fence));
 
-		_drawData.ImageExtent.width = glm::min(_swapchain.Extent.width, _drawData.ImageExtent.width);
-		_drawData.ImageExtent.height = glm::min(_swapchain.Extent.height, _swapchain.Extent.height);
+		_drawData.ImageExtent.width = glm::min(_swapchain.Extent.width, _drawData.Image.Extent.width);
+		_drawData.ImageExtent.height = glm::min(_swapchain.Extent.height, _drawData.Image.Extent.height);
 
 		VkCommandBuffer currentCommandBuffer = currentFrame.CommandBuffer;
 
@@ -138,13 +137,26 @@ namespace vl::core
 		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
+	void Renderer::PushBackgroundRenderFunction(RenderFn renderFunction)
+	{
+		_backgroundRenderFunctions.push_back(renderFunction);
+	}
+
+	void Renderer::PushRenderFunction(RenderFn renderFunction)
+	{
+		_renderFunctions.push_back(renderFunction);
+	}
+
+	void Renderer::PushImGuiRenderFunction(ImGuiRenderFn renderFunction)
+	{
+	}
+
     void Renderer::Shutdown()
     {
+		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
 		
-		//vkDestroyPipeline(_logicalDevice, gradient.Pipeline, nullptr);
-		//vkDestroyPipelineLayout(_logicalDevice, _computePipel, nullptr);
-
-		//TODO: Destroy Descriptor Sets
+		vkDestroyPipeline(_logicalDevice, _pipeline, nullptr);
+		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
 
 		vkDestroyImageView(_logicalDevice, _drawData.DepthImage.View, nullptr);
 		vmaDestroyImage(_allocator, _drawData.DepthImage.Handle, _drawData.DepthImage.Allocation);
@@ -293,19 +305,155 @@ namespace vl::core
 		VK_CHECK(vkAllocateCommandBuffers(_logicalDevice, &immAllocInfo, &_immediateData.CommandBuffer));
     }
 
-    void Renderer::InitDescriptors()
-    {
-		//TODO: 
-    }
-
-    void Renderer::InitComputePipeline()
-    {
-		//TODO:
-    }
-
     void Renderer::InitGraphicsPipeline()
     {
-		//TODO:
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = vulkan::pipelineLayoutCreateInfo();
+		vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout);
+
+		VkShaderModule vertexShaderModule = _vertexShader->CreateShaderModule(_logicalDevice);
+		VkShaderModule fragmentShaderModule = _fragmentShader->CreateShaderModule(_logicalDevice);
+		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages
+		{
+			vulkan::pipelineShaderStageCreateInfo(vertexShaderModule, VK_SHADER_STAGE_VERTEX_BIT),
+			vulkan::pipelineShaderStageCreateInfo(fragmentShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT),
+		};
+
+		VkFormat colorAttachmentFormat = _drawData.Image.Format;
+		VkFormat depthAttachmentFormat = _drawData.DepthImage.Format;
+
+		VkPipelineRenderingCreateInfo renderingInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+			.pNext = nullptr,
+			.viewMask = 0,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &colorAttachmentFormat,
+			.depthAttachmentFormat = depthAttachmentFormat,
+			.stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+		};
+
+		VkPipelineVertexInputStateCreateInfo _vertexInputInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+
+		VkPipelineInputAssemblyStateCreateInfo _inputAssemblyInfo = 
+		{ 
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+			.primitiveRestartEnable = VK_FALSE,
+		};
+
+		VkPipelineViewportStateCreateInfo viewportState
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.viewportCount = 1,
+			.scissorCount = 1,
+		};
+
+		VkPipelineRasterizationStateCreateInfo rasterizer
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.depthClampEnable = VK_FALSE,
+			.rasterizerDiscardEnable = VK_FALSE,
+			.polygonMode = VK_POLYGON_MODE_FILL,
+			.cullMode = VK_CULL_MODE_NONE,
+			.frontFace = VK_FRONT_FACE_CLOCKWISE,
+			.depthBiasEnable = VK_FALSE,
+			.depthBiasConstantFactor = 0,
+			.depthBiasClamp = 0,
+			.depthBiasSlopeFactor = 0,
+			.lineWidth = 1.0f,
+		};
+
+		VkPipelineMultisampleStateCreateInfo multisampling
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+			.sampleShadingEnable = VK_FALSE,
+			.minSampleShading = 1.0f,
+			.pSampleMask = nullptr,
+			.alphaToCoverageEnable = VK_FALSE,
+			.alphaToOneEnable = VK_FALSE,
+		};
+
+		VkPipelineDepthStencilStateCreateInfo depthStencil
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.depthTestEnable = VK_TRUE,
+			.depthWriteEnable = VK_TRUE,
+			.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+			.depthBoundsTestEnable = VK_FALSE,
+			.stencilTestEnable = VK_FALSE,
+			.front = {},
+			.back = {},
+			.minDepthBounds = 0.0f,
+			.maxDepthBounds = 1.0f,
+		};
+
+		VkPipelineColorBlendAttachmentState colorBlendAttachment
+		{
+			.blendEnable = VK_TRUE,
+			.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+			.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+			.colorBlendOp = VK_BLEND_OP_ADD,
+			.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+			.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+			.alphaBlendOp = VK_BLEND_OP_ADD,
+			.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+		};
+
+		VkPipelineColorBlendStateCreateInfo colorBlending
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+			.pNext = nullptr,
+			.logicOpEnable = VK_FALSE,
+			.logicOp = VK_LOGIC_OP_COPY,
+			.attachmentCount = 1,
+			.pAttachments = &colorBlendAttachment,
+		};
+		
+		VkDynamicState state[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		VkPipelineDynamicStateCreateInfo dynamicInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+			.dynamicStateCount = 2,
+			.pDynamicStates = &state[0],
+		};
+
+		VkGraphicsPipelineCreateInfo pipelineInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+			.pNext = &renderingInfo,
+			.flags = 0,
+			.stageCount = (uint32_t)shaderStages.size(),
+			.pStages = shaderStages.data(),
+			.pVertexInputState = &_vertexInputInfo,
+			.pInputAssemblyState = &_inputAssemblyInfo,
+			.pTessellationState = nullptr,
+			.pViewportState = &viewportState,
+			.pRasterizationState = &rasterizer,
+			.pMultisampleState = &multisampling,
+			.pDepthStencilState = &depthStencil,
+			.pColorBlendState = &colorBlending,
+			.pDynamicState = &dynamicInfo,
+			.layout = _pipelineLayout,
+			.renderPass = VK_NULL_HANDLE,
+			.subpass = 0,
+			.basePipelineHandle = VK_NULL_HANDLE,
+			.basePipelineIndex = 0,
+		};
+
+		VK_CHECK(vkCreateGraphicsPipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_pipeline));
+
+		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
+		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
     }
 
     void Renderer::CreateSwapchain()
@@ -328,10 +476,12 @@ namespace vl::core
 			.build();
 
 		vkb::Swapchain vkb_swapchain = swapchain_ret.value();
-		_swapchain.Handle = vkb_swapchain.swapchain;
 
+		_swapchain.Handle = vkb_swapchain.swapchain;
 		_swapchain.Images = vkb_swapchain.get_images().value();
 		_swapchain.ImageViews = vkb_swapchain.get_image_views().value();
+		_swapchain.Format = vkb_swapchain.image_format;
+		_swapchain.Extent = vkb_swapchain.extent;
 
 		//Draw Image
 		if (_drawData.Image.Handle != VK_NULL_HANDLE)
@@ -366,7 +516,7 @@ namespace vl::core
 
 		VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &imageAllocInfo, &_drawData.Image.Handle, &_drawData.Image.Allocation, nullptr));
 
-		VkImageViewCreateInfo drawImageViewInfo =vulkan::imageViewCreateInfo(
+		VkImageViewCreateInfo drawImageViewInfo = vulkan::imageViewCreateInfo(
 			_drawData.Image.Format, 
 			_drawData.Image.Handle, 
 			VK_IMAGE_ASPECT_COLOR_BIT);
@@ -435,21 +585,92 @@ namespace vl::core
 
 		vulkan::transitionImage(commandBuffer, _swapchain.Images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-		//DrawImgui(commandBuffer, _swapChainImageViews[imageIndex]);
+		DrawImGui(commandBuffer, _swapchain.ImageViews[imageIndex]);
 
 		vulkan::transitionImage(commandBuffer, _swapchain.Images[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		
 		VK_CHECK(vkEndCommandBuffer(commandBuffer));
 	}
+
 	void Renderer::DrawBackground(VkCommandBuffer commandBuffer)
 	{
-		VkClearColorValue clearColor = { {0.007f, 0.007f, 0.007f, 1.0f} };
-		VkImageSubresourceRange clearRange = vulkan::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-
-		vkCmdClearColorImage(commandBuffer, _drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+		for (auto& renderFunction : _backgroundRenderFunctions)
+		{
+			renderFunction(commandBuffer, _drawData);
+		}
 	}
 
 	void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
 	{
+		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(
+			_drawData.Image.View,
+			nullptr,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+		VkRenderingAttachmentInfo depthAttachment = vulkan::depthAttachmentInfo(
+			_drawData.DepthImage.View,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+		VkRenderingInfo renderInfo = vulkan::renderingInfo(
+			_drawData.ImageExtent,
+			&colorAttachment,
+			&depthAttachment);
+
+		vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline);
+
+		VkViewport viewport
+		{
+			.x = 0,
+			.y = 0,
+			.width = float(_drawData.ImageExtent.width),
+			.height = float(_drawData.ImageExtent.height),
+			.minDepth = 0.f,
+			.maxDepth = 1.f,
+		};
+
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		VkRect2D scissor
+		{
+			.offset
+			{
+				.x = 0,
+				.y = 0
+			},
+			.extent
+			{
+				.width = _drawData.ImageExtent.width,
+				.height = _drawData.ImageExtent.height,
+			}
+		};
+
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		for (auto& renderFunction : _renderFunctions)
+		{
+			renderFunction(commandBuffer, _drawData);
+		}
+
+		vkCmdEndRendering(commandBuffer);
+	}
+
+	void Renderer::DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView)
+	{
+		if (_imGuiRenderFunctions.size() == 0)
+		{
+			return;
+		}
+
+		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		VkRenderingInfo renderInfo = vulkan::renderingInfo(_swapchain.Extent, &colorAttachment, nullptr);
+
+		vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+		ImDrawData* data = ImGui::GetDrawData();
+		ImGui_ImplVulkan_RenderDrawData(data, commandBuffer);
+
+		vkCmdEndRendering(commandBuffer);
 	}
 }

@@ -2,9 +2,13 @@
 
 #include "Renderer/Defines.h"
 #include "Renderer/Vulkan/Vulkan.h"
+#include "Renderer/Shader.h"
 
 namespace vl::core
 {
+	typedef std::function<void(VkCommandBuffer, const vulkan::DrawData&)> RenderFn;
+	typedef std::function<void()> ImGuiRenderFn;
+
 	class Renderer
 	{
 	public:
@@ -14,14 +18,21 @@ namespace vl::core
 		static std::unique_ptr<Renderer> Create(GLFWwindow* pWindow, uint32_t width, uint32_t height);
 
 		void OnResize(uint32_t width, uint32_t height);
-		void OnRenderFinished();
+		void OnRender();
+
+		void PushBackgroundRenderFunction(RenderFn renderFunction);
+		void PushRenderFunction(RenderFn renderFunction);
+		void PushImGuiRenderFunction(ImGuiRenderFn renderFunction);
 
 		void Init();
-		void Render();
 		void Shutdown();
 
 	private:
 		GLFWwindow* _pWindow;
+
+		std::shared_ptr<Shader> _vertexShader;
+		std::shared_ptr<Shader> _fragmentShader;
+
 		VkInstance _instance = VK_NULL_HANDLE;
 		VkDebugUtilsMessengerEXT _debugMessenger = VK_NULL_HANDLE;
 		VkSurfaceKHR _surface = VK_NULL_HANDLE;
@@ -33,6 +44,8 @@ namespace vl::core
 		uint32_t _presentQueueFamilyIndex = 0;
 		vulkan::Swapchain _swapchain = {};
 		vulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT] = {};
+		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
+		VkPipeline _pipeline = VK_NULL_HANDLE;
 
 		uint32_t _width = 0;
 		uint32_t _height = 0;
@@ -49,8 +62,6 @@ namespace vl::core
 		void InitSyncObjects();
 		void InitSwapchain();
 		void InitCommands();
-		void InitDescriptors();
-		void InitComputePipeline();
 		void InitGraphicsPipeline();
 
 		void CreateSwapchain();
@@ -60,7 +71,12 @@ namespace vl::core
 
 		void DrawBackground(VkCommandBuffer commandBuffer);
 		void DrawGeometry(VkCommandBuffer commandBuffer);
+		void DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 		inline vulkan::Frame& CurrentFrame() { return _frames[_currentFrame]; }
+
+		std::vector<RenderFn> _backgroundRenderFunctions;
+		std::vector<RenderFn> _renderFunctions;
+		std::vector<ImGuiRenderFn> _imGuiRenderFunctions;
 	};
 }

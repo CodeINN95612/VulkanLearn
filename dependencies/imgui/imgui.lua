@@ -7,6 +7,13 @@ project "imgui"
     targetdir (OutDir)
     objdir (ObjDir)
         
+    includedirs
+    {
+        "imgui",
+        "%{wks.location}/dependencies/glfw/glfw/include",
+        "%{vulkanSDK}/Include"
+    }
+
     files
     {
         "imgui/imconfig.h",
@@ -19,5 +26,20 @@ project "imgui"
         "imgui/imstb_rectpack.h",
         "imgui/imstb_textedit.h",
         "imgui/imstb_truetype.h",
-        "imgui/imgui_demo.cpp"
+        "imgui/imgui_demo.cpp",
+        "imgui/backends/imgui_impl_glfw.h",
+        "imgui/backends/imgui_impl_glfw.cpp",
+        "imgui/backends/imgui_impl_vulkan.h",
+        "imgui/backends/imgui_impl_vulkan.cpp",
+    }
+
+    libdirs
+    {
+        "%{vulkanSDK}/Lib"
+    }
+
+    links
+    {
+        "vulkan-1",
+        "glfw",
     }

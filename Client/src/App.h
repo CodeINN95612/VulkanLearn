@@ -13,6 +13,8 @@ public:
 	void Loop();
 	void Shutdown();
 
+	void GenerateRendering();
+
 private:
 	std::unique_ptr<vl::core::Renderer> _renderer = nullptr;
 	GLFWwindow* _pWindow = nullptr;
