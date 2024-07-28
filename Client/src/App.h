@@ -24,4 +24,7 @@ private:
 
 	bool _doRender = true;
 	double _fps = 0.0f;
+
+private:
+	void OnImguiRender();
 };

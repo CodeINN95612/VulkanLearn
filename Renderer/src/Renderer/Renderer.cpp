@@ -74,6 +74,54 @@ namespace vl::core
 		_resized = true;
     }
 
+	void Renderer::OnImGuiRender(ImGuiRenderFn imguiRenderFuntion)
+	{
+		/*if (_resized) {
+			RecreateSwapChain();
+		}*/
+
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
+		static bool open = true;
+		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->WorkPos);
+		ImGui::SetNextWindowSize(viewport->WorkSize);
+		ImGui::SetNextWindowViewport(viewport->ID);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+		ImGuiWindowFlags window_flags = /*ImGuiWindowFlags_MenuBar |*/ ImGuiWindowFlags_NoDocking;
+		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+		ImGui::Begin("DockSpace Demo", &open, window_flags);
+
+		ImGui::PopStyleVar();
+
+		ImGui::PopStyleVar(2);
+
+		ImGuiIO& io = ImGui::GetIO();
+		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+		{
+			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+			ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+		}
+
+		
+
+		imguiRenderFuntion();
+
+		ImGui::End();
+
+		ImGui::Render();
+	}
+
     void Renderer::Init()
 	{
 		InitVulkan();
@@ -81,6 +129,7 @@ namespace vl::core
 		InitSwapchain();
 		InitCommands();
 		InitGraphicsPipeline();
+		InitImGui();
     }
 
     void Renderer::OnRender()
@@ -147,13 +196,11 @@ namespace vl::core
 		_renderFunctions.push_back(renderFunction);
 	}
 
-	void Renderer::PushImGuiRenderFunction(ImGuiRenderFn renderFunction)
-	{
-	}
-
     void Renderer::Shutdown()
     {
 		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
+
+		DestroyImgui();
 		
 		vkDestroyPipeline(_logicalDevice, _pipeline, nullptr);
 		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
@@ -456,6 +503,74 @@ namespace vl::core
 		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
     }
 
+	void Renderer::InitImGui()
+	{
+		VkDescriptorPoolSize poolSizes[] =
+		{
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+		};
+
+		VkDescriptorPoolCreateInfo poolInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+			.maxSets = 1000,
+			.poolSizeCount = (uint32_t)std::size(poolSizes),
+			.pPoolSizes = poolSizes,
+		};
+		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_imGuiDescriptorPool));
+
+		ImGui::CreateContext();
+		bool initialized = ImGui_ImplGlfw_InitForVulkan(_pWindow, true);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar la implementacion ImGui para Vulkan");
+		}
+
+		VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &_swapchain.Format,
+		};
+
+		ImGui_ImplVulkan_InitInfo initInfo
+		{
+			.Instance = _instance,
+			.PhysicalDevice = _physicalDevice,
+			.Device = _logicalDevice,
+			.QueueFamily = _graphicsQueueFamilyIndex,
+			.Queue = _graphicsQueue,
+			.DescriptorPool = _imGuiDescriptorPool,
+			.MinImageCount = 3,
+			.ImageCount = 3,
+			.MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+			.UseDynamicRendering = true,
+			.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo,
+		};
+
+		auto& io = ImGui::GetIO();
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+		initialized = ImGui_ImplVulkan_Init(&initInfo);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar ImGui para Vulkan");
+		}
+
+		ImGui_ImplVulkan_CreateFontsTexture();
+	}
+
     void Renderer::CreateSwapchain()
     {
         //Swapchain
@@ -554,6 +669,14 @@ namespace vl::core
 		for (auto imageView : _swapchain.ImageViews) {
 			vkDestroyImageView(_logicalDevice, imageView, nullptr);
 		}
+	}
+
+	void Renderer::DestroyImgui()
+	{
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+		vkDestroyDescriptorPool(_logicalDevice, _imGuiDescriptorPool, nullptr);
 	}
 
 	void Renderer::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -658,11 +781,6 @@ namespace vl::core
 
 	void Renderer::DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView)
 	{
-		if (_imGuiRenderFunctions.size() == 0)
-		{
-			return;
-		}
-
 		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		VkRenderingInfo renderInfo = vulkan::renderingInfo(_swapchain.Extent, &colorAttachment, nullptr);
 

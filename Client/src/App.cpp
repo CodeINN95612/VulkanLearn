@@ -1,4 +1,5 @@
 #include "App.h"
+#include <imgui.h>
 
 App::App()
 {
@@ -69,7 +70,11 @@ void App::Loop()
 
 		if (_doRender)
 		{
-			//OnImGuiRender();
+			_renderer->OnImGuiRender([this]() 
+				{
+					OnImguiRender();
+				}
+			);
 			_renderer->OnRender();
 		}
 		else
@@ -114,9 +119,16 @@ void App::GenerateRendering()
 			vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 		}
 	);
+}
 
-	/*_renderer->PushImGuiRenderFunction([]()
-		{
-		}
-	);*/
+void App::OnImguiRender()
+{
+	if (ImGui::Begin("Utils"))
+	{
+		ImGui::Text("FPS: %.1f", _fps);
+
+		ImGui::Text("Width: %d", _width);
+		ImGui::Text("Height: %d", _height);
+	}
+	ImGui::End();
 }

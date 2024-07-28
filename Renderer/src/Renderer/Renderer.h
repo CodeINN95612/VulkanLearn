@@ -18,11 +18,11 @@ namespace vl::core
 		static std::unique_ptr<Renderer> Create(GLFWwindow* pWindow, uint32_t width, uint32_t height);
 
 		void OnResize(uint32_t width, uint32_t height);
+		void OnImGuiRender(ImGuiRenderFn imguiRenderFuntion);
 		void OnRender();
 
 		void PushBackgroundRenderFunction(RenderFn renderFunction);
 		void PushRenderFunction(RenderFn renderFunction);
-		void PushImGuiRenderFunction(ImGuiRenderFn renderFunction);
 
 		void Init();
 		void Shutdown();
@@ -46,6 +46,7 @@ namespace vl::core
 		vulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT] = {};
 		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
 		VkPipeline _pipeline = VK_NULL_HANDLE;
+		VkDescriptorPool _imGuiDescriptorPool = VK_NULL_HANDLE;
 
 		uint32_t _width = 0;
 		uint32_t _height = 0;
@@ -63,9 +64,11 @@ namespace vl::core
 		void InitSwapchain();
 		void InitCommands();
 		void InitGraphicsPipeline();
+		void InitImGui();
 
 		void CreateSwapchain();
 		void DestroySwapchain();
+		void DestroyImgui();
 
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
@@ -77,6 +80,5 @@ namespace vl::core
 
 		std::vector<RenderFn> _backgroundRenderFunctions;
 		std::vector<RenderFn> _renderFunctions;
-		std::vector<ImGuiRenderFn> _imGuiRenderFunctions;
 	};
 }
