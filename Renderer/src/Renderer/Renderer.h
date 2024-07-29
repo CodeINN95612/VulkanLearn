@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/Defines.h"
+#include "Renderer/GraphicsPipeline.h"
 #include "Renderer/Vulkan/Vulkan.h"
 #include "Renderer/Shader.h"
 
@@ -21,6 +22,12 @@ namespace vl::core
 		void OnImGuiRender(ImGuiRenderFn imguiRenderFuntion);
 		void OnRender();
 
+		const GraphicsPipeline& GenerateGenericGraphicsPipeline(
+			const std::string& name, 
+			const std::shared_ptr<Shader>& vertexShader, 
+			const std::shared_ptr<Shader>& fragmentShader);
+		const void BindGraphicsPipeline(VkCommandBuffer commandBuffer, const GraphicsPipeline& pipeline) const;
+
 		void PushBackgroundRenderFunction(RenderFn renderFunction);
 		void PushRenderFunction(RenderFn renderFunction);
 
@@ -29,9 +36,6 @@ namespace vl::core
 
 	private:
 		GLFWwindow* _pWindow;
-
-		std::shared_ptr<Shader> _vertexShader;
-		std::shared_ptr<Shader> _fragmentShader;
 
 		VkInstance _instance = VK_NULL_HANDLE;
 		VkDebugUtilsMessengerEXT _debugMessenger = VK_NULL_HANDLE;
@@ -45,7 +49,7 @@ namespace vl::core
 		vulkan::Swapchain _swapchain = {};
 		vulkan::Frame _frames[MAX_FRAMES_IN_FLIGHT] = {};
 		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
-		VkPipeline _pipeline = VK_NULL_HANDLE;
+
 		VkDescriptorPool _imGuiDescriptorPool = VK_NULL_HANDLE;
 
 		uint32_t _width = 0;
@@ -66,7 +70,12 @@ namespace vl::core
 		void InitGraphicsPipeline();
 		void InitImGui();
 
+		VkPipeline BuildGenericGraphicsPipeline(
+			VkShaderModule vertexShaderModule,
+			VkShaderModule fragmentShaderModule);
+
 		void CreateSwapchain();
+		void RecreateSwapchain();
 		void DestroySwapchain();
 		void DestroyImgui();
 
@@ -80,5 +89,7 @@ namespace vl::core
 
 		std::vector<RenderFn> _backgroundRenderFunctions;
 		std::vector<RenderFn> _renderFunctions;
+
+		std::unordered_map<std::string, GraphicsPipeline> _graphicsPipelines;
 	};
 }

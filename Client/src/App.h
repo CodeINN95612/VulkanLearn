@@ -15,6 +15,8 @@ public:
 
 	void GenerateRendering();
 
+	void OnResize(uint32_t width, uint32_t height);
+
 private:
 	std::unique_ptr<vl::core::Renderer> _renderer = nullptr;
 	GLFWwindow* _pWindow = nullptr;
@@ -24,6 +26,9 @@ private:
 
 	bool _doRender = true;
 	double _fps = 0.0f;
+
+	std::shared_ptr<vl::core::Shader> _vertexShader = nullptr;
+	std::shared_ptr<vl::core::Shader> _fragmentShader = nullptr;
 
 private:
 	void OnImguiRender();

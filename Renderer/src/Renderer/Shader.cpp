@@ -91,6 +91,8 @@ namespace vl::core
 
 	std::shared_ptr<Shader> Shader::Create(const std::string& name, const std::string& path, ShaderType type)
 	{
+		spdlog::info("Compilando shader {0}", name);
+
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
