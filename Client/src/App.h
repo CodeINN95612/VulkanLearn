@@ -13,8 +13,6 @@ public:
 	void Loop();
 	void Shutdown();
 
-	void GenerateRendering();
-
 	void OnResize(uint32_t width, uint32_t height);
 
 private:
@@ -27,8 +25,7 @@ private:
 	bool _doRender = true;
 	double _fps = 0.0f;
 
-	std::shared_ptr<vl::core::Shader> _vertexShader = nullptr;
-	std::shared_ptr<vl::core::Shader> _fragmentShader = nullptr;
+	glm::vec4 _clearColor{ 0.007f, 0.007f, 0.007f, 1.f };
 
 private:
 	void OnImguiRender();

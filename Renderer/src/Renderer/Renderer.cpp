@@ -8,6 +8,7 @@
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 #include <imgui/backends/imgui_impl_vulkan.h>
+#include <filesystem>
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -58,7 +59,8 @@ namespace vl::core
         _width(width),
         _height(height)
     {
-		
+		std::filesystem::path currentPath = std::filesystem::current_path();
+		spdlog::info("\tRenderer Working Dir: {}", currentPath.string());
     }
 
     std::unique_ptr<Renderer> Renderer::Create(GLFWwindow* pWindow, uint32_t width, uint32_t height)
@@ -129,7 +131,7 @@ namespace vl::core
 		InitImGui();
     }
 
-    void Renderer::OnRender()
+    void Renderer::DrawFrame()
     {
 		vulkan::Frame& currentFrame = CurrentFrame();
 
@@ -185,76 +187,23 @@ namespace vl::core
 		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
-	const GraphicsPipeline& Renderer::GenerateGenericGraphicsPipeline(
-		const std::string& name, 
-		const std::shared_ptr<Shader>& vertexShader, 
-		const std::shared_ptr<Shader>& fragmentShader)
+	void Renderer::StartFrame()
 	{
-		spdlog::info("Building Generic Graphics Pipeline: {}", name);
-
-		if (_graphicsPipelines.count(name) > 0)
-		{
-			spdlog::error("Ya existe un pipeline con ese nombre: {0}", name);
-			throw std::exception("Ya existe un pipeline con ese nombre");
-		}
-
-		VkShaderModule vertexShaderModule = vertexShader->CreateShaderModule(_logicalDevice);
-		VkShaderModule fragmentShaderModule = fragmentShader->CreateShaderModule(_logicalDevice);
-
-		GraphicsPipeline pipeline
-		{
-			.Handle = BuildGenericGraphicsPipeline(vertexShaderModule, fragmentShaderModule)
-		};
-
-		_graphicsPipelines[name] = pipeline;
-
-		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
-		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
-
-		return _graphicsPipelines[name];
 	}
 
-	const void Renderer::BindGraphicsPipeline(VkCommandBuffer commandBuffer, const GraphicsPipeline& pipeline) const
+	void Renderer::SubmitFrame()
 	{
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle);
-
-		VkViewport viewport
-		{
-			.x = 0,
-			.y = 0,
-			.width = float(_drawData.ImageExtent.width),
-			.height = float(_drawData.ImageExtent.height),
-			.minDepth = 0.f,
-			.maxDepth = 1.f,
-		};
-
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-		VkRect2D scissor
-		{
-			.offset
-			{
-				.x = 0,
-				.y = 0
-			},
-			.extent
-			{
-				.width = _drawData.ImageExtent.width,
-				.height = _drawData.ImageExtent.height,
-			}
-		};
-
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+		DrawFrame();
 	}
 
-	void Renderer::PushBackgroundRenderFunction(RenderFn renderFunction)
+	void Renderer::SetClearColor(glm::vec4 clearColor)
 	{
-		_backgroundRenderFunctions.push_back(renderFunction);
+		_clearColor = clearColor;
 	}
 
-	void Renderer::PushRenderFunction(RenderFn renderFunction)
+	void Renderer::DrawTriangle()
 	{
-		_renderFunctions.push_back(renderFunction);
+
 	}
 
     void Renderer::Shutdown()
@@ -263,10 +212,7 @@ namespace vl::core
 
 		DestroyImgui();
 		
-		for (auto& [name, pipeline] : _graphicsPipelines)
-		{
-			vkDestroyPipeline(_logicalDevice, pipeline.Handle, nullptr);
-		}
+		vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
 
 		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
 
@@ -421,78 +367,13 @@ namespace vl::core
     {
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = vulkan::pipelineLayoutCreateInfo();
 		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
-    }
+		
+		_vertexShader = Shader::Create("VertexShader", "../Renderer/assets/shaders/shader.vert", ShaderType::Vertex);
+		_fragmentShader = Shader::Create("FragmentShader", "../Renderer/assets/shaders/shader.frag", ShaderType::Fragment);
 
-	void Renderer::InitImGui()
-	{
-		VkDescriptorPoolSize poolSizes[] =
-		{
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-		};
+		VkShaderModule vertexShaderModule = _vertexShader->CreateShaderModule(_logicalDevice);
+		VkShaderModule fragmentShaderModule = _fragmentShader->CreateShaderModule(_logicalDevice);
 
-		VkDescriptorPoolCreateInfo poolInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-			.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-			.maxSets = 1000,
-			.poolSizeCount = (uint32_t)std::size(poolSizes),
-			.pPoolSizes = poolSizes,
-		};
-		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_imGuiDescriptorPool));
-
-		ImGui::CreateContext();
-		bool initialized = ImGui_ImplGlfw_InitForVulkan(_pWindow, true);
-		if (!initialized)
-		{
-			throw std::exception("No fue posible inicializar la implementacion ImGui para Vulkan");
-		}
-
-		VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-			.colorAttachmentCount = 1,
-			.pColorAttachmentFormats = &_swapchain.Format,
-		};
-
-		ImGui_ImplVulkan_InitInfo initInfo
-		{
-			.Instance = _instance,
-			.PhysicalDevice = _physicalDevice,
-			.Device = _logicalDevice,
-			.QueueFamily = _graphicsQueueFamilyIndex,
-			.Queue = _graphicsQueue,
-			.DescriptorPool = _imGuiDescriptorPool,
-			.MinImageCount = 3,
-			.ImageCount = 3,
-			.MSAASamples = VK_SAMPLE_COUNT_1_BIT,
-			.UseDynamicRendering = true,
-			.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo,
-		};
-
-		auto& io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-		initialized = ImGui_ImplVulkan_Init(&initInfo);
-		if (!initialized)
-		{
-			throw std::exception("No fue posible inicializar ImGui para Vulkan");
-		}
-
-		ImGui_ImplVulkan_CreateFontsTexture();
-	}
-
-	VkPipeline Renderer::BuildGenericGraphicsPipeline(VkShaderModule vertexShaderModule, VkShaderModule fragmentShaderModule)
-	{
 		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages
 		{
 			vulkan::pipelineShaderStageCreateInfo(vertexShaderModule, VK_SHADER_STAGE_VERTEX_BIT),
@@ -631,9 +512,78 @@ namespace vl::core
 			.basePipelineIndex = 0,
 		};
 
-		VkPipeline pipeline = VK_NULL_HANDLE;
-		VK_CHECK(vkCreateGraphicsPipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline));
-		return pipeline;
+		VK_CHECK(vkCreateGraphicsPipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline));
+
+		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
+		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
+    }
+
+	void Renderer::InitImGui()
+	{
+		VkDescriptorPoolSize poolSizes[] =
+		{
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+		};
+
+		VkDescriptorPoolCreateInfo poolInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+			.maxSets = 1000,
+			.poolSizeCount = (uint32_t)std::size(poolSizes),
+			.pPoolSizes = poolSizes,
+		};
+		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_imGuiDescriptorPool));
+
+		ImGui::CreateContext();
+		bool initialized = ImGui_ImplGlfw_InitForVulkan(_pWindow, true);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar la implementacion ImGui para Vulkan");
+		}
+
+		VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &_swapchain.Format,
+		};
+
+		ImGui_ImplVulkan_InitInfo initInfo
+		{
+			.Instance = _instance,
+			.PhysicalDevice = _physicalDevice,
+			.Device = _logicalDevice,
+			.QueueFamily = _graphicsQueueFamilyIndex,
+			.Queue = _graphicsQueue,
+			.DescriptorPool = _imGuiDescriptorPool,
+			.MinImageCount = 3,
+			.ImageCount = 3,
+			.MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+			.UseDynamicRendering = true,
+			.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo,
+		};
+
+		auto& io = ImGui::GetIO();
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+		initialized = ImGui_ImplVulkan_Init(&initInfo);
+		if (!initialized)
+		{
+			throw std::exception("No fue posible inicializar ImGui para Vulkan");
+		}
+
+		ImGui_ImplVulkan_CreateFontsTexture();
 	}
 
     void Renderer::CreateSwapchain()
@@ -793,10 +743,19 @@ namespace vl::core
 
 	void Renderer::DrawBackground(VkCommandBuffer commandBuffer)
 	{
-		for (auto& renderFunction : _backgroundRenderFunctions)
-		{
-			renderFunction(commandBuffer, _drawData);
-		}
+		VkClearColorValue clearColor
+		{ 
+			{
+				_clearColor.r,
+				_clearColor.g,
+				_clearColor.b,
+				_clearColor.a
+			}
+		};
+		VkImageSubresourceRange clearRange = vl::core::vulkan::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+		vkCmdClearColorImage(commandBuffer, _drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+
 	}
 
 	void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
@@ -817,11 +776,37 @@ namespace vl::core
 
 		vkCmdBeginRendering(commandBuffer, &renderInfo);
 
-		
-		for (auto& renderFunction : _renderFunctions)
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
+
+		VkViewport viewport
 		{
-			renderFunction(commandBuffer, _drawData);
-		}
+			.x = 0,
+			.y = 0,
+			.width = float(_drawData.ImageExtent.width),
+			.height = float(_drawData.ImageExtent.height),
+			.minDepth = 0.f,
+			.maxDepth = 1.f,
+		};
+
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		VkRect2D scissor
+		{
+			.offset
+			{
+				.x = 0,
+				.y = 0
+			},
+			.extent
+			{
+				.width = _drawData.ImageExtent.width,
+				.height = _drawData.ImageExtent.height,
+			}
+		};
+
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
 		vkCmdEndRendering(commandBuffer);
 	}

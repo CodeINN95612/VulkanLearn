@@ -5,6 +5,7 @@ project "Client"
 
     targetdir (OutDir)
     objdir (ObjDir)
+    debugdir "%{wks.location}"
 
     files
     {

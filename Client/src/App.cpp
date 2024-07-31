@@ -11,7 +11,7 @@ void App::Run()
 	InitWindow();
 
 	_renderer = vl::core::Renderer::Create(_pWindow, _width, _height);
-	GenerateRendering();
+	_renderer->Init();
 
 	Loop();
 
@@ -77,7 +77,14 @@ void App::Loop()
 					OnImguiRender();
 				}
 			);
-			_renderer->OnRender();
+
+			_renderer->SetClearColor(_clearColor);
+
+			_renderer->StartFrame();
+
+			_renderer->DrawTriangle();
+
+			_renderer->SubmitFrame();
 		}
 		else
 		{
@@ -103,31 +110,6 @@ void App::Shutdown()
 	glfwTerminate();
 }
 
-void App::GenerateRendering()
-{
-
-	_renderer->Init();
-	_renderer->PushBackgroundRenderFunction([](VkCommandBuffer commandBuffer, const vl::core::vulkan::DrawData& drawData)
-		{
-			VkClearColorValue clearColor = { {0.007f, 0.007f, 0.007f, 1.0f} };
-			VkImageSubresourceRange clearRange = vl::core::vulkan::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-
-			vkCmdClearColorImage(commandBuffer, drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
-		}
-	);
-
-	_vertexShader = vl::core::Shader::Create("VertexShader", "assets/shaders/shader.vert", vl::core::ShaderType::Vertex);
-	_fragmentShader = vl::core::Shader::Create("FragmentShader", "assets/shaders/shader.frag", vl::core::ShaderType::Fragment);
-	const vl::core::GraphicsPipeline& pipeline = _renderer->GenerateGenericGraphicsPipeline("GenericPipeline", _vertexShader, _fragmentShader);
-
-	_renderer->PushRenderFunction([pipeline, this](VkCommandBuffer commandBuffer, const vl::core::vulkan::DrawData& drawData)
-		{
-			this->_renderer->BindGraphicsPipeline(commandBuffer, pipeline);
-			vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-		}
-	);
-}
-
 void App::OnResize(uint32_t width, uint32_t height)
 {
 	_width = width;
@@ -145,6 +127,8 @@ void App::OnImguiRender()
 
 		ImGui::Text("Width: %d", _width);
 		ImGui::Text("Height: %d", _height);
+
+		ImGui::ColorEdit3("Clear Color", &_clearColor.x);
 	}
 	ImGui::End();
 }
