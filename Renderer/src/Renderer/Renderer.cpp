@@ -368,8 +368,8 @@ namespace vl::core
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = vulkan::pipelineLayoutCreateInfo();
 		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
 		
-		_vertexShader = Shader::Create("VertexShader", "../Renderer/assets/shaders/shader.vert", ShaderType::Vertex);
-		_fragmentShader = Shader::Create("FragmentShader", "../Renderer/assets/shaders/shader.frag", ShaderType::Fragment);
+		_vertexShader = Shader::Create("VertexShader", "Renderer/assets/shaders/shader.vert", ShaderType::Vertex);
+		_fragmentShader = Shader::Create("FragmentShader", "Renderer/assets/shaders/shader.frag", ShaderType::Fragment);
 
 		VkShaderModule vertexShaderModule = _vertexShader->CreateShaderModule(_logicalDevice);
 		VkShaderModule fragmentShaderModule = _fragmentShader->CreateShaderModule(_logicalDevice);

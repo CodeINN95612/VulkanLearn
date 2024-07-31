@@ -15,7 +15,6 @@ int main(int argc, char** argv)
     std::filesystem::path currentPath = std::filesystem::current_path();
     spdlog::info("\t-Working Dir: {}", currentPath.string());
 
-
     App app;
     try
     {
