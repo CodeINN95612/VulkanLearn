@@ -29,6 +29,12 @@ namespace vl::core
 		void Shutdown();
 
 	private:
+		struct PushConstant
+		{
+			glm::mat4 transform;
+		};
+
+	private:
 		GLFWwindow* _pWindow;
 
 		VkInstance _instance = VK_NULL_HANDLE;
@@ -60,6 +66,8 @@ namespace vl::core
 
 		std::shared_ptr<vl::core::Shader> _vertexShader = nullptr;
 		std::shared_ptr<vl::core::Shader> _fragmentShader = nullptr;
+		vulkan::AllocatedBuffer _vertexBuffer = {};
+		vulkan::AllocatedBuffer _indexBuffer = {};
 
 	private:
 		void InitVulkan();
@@ -67,6 +75,7 @@ namespace vl::core
 		void InitSwapchain();
 		void InitCommands();
 		void InitGraphicsPipeline();
+		void InitDescriptorPool();
 		void InitImGui();
 
 		void CreateSwapchain();
@@ -80,6 +89,11 @@ namespace vl::core
 		void DrawBackground(VkCommandBuffer commandBuffer);
 		void DrawGeometry(VkCommandBuffer commandBuffer);
 		void DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
+
+		void UploadMesh();
+
+		vulkan::AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 
 		inline vulkan::Frame& CurrentFrame() { return _frames[_currentFrame]; }
 	};

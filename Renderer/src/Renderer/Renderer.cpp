@@ -10,6 +10,10 @@
 #include <imgui/backends/imgui_impl_vulkan.h>
 #include <filesystem>
 
+#include "Renderer/Vertex.h"
+#include "Renderer/Mesh/Triangle.h"
+#include "Renderer/Mesh/Square.h"
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -129,6 +133,7 @@ namespace vl::core
 		InitCommands();
 		InitGraphicsPipeline();
 		InitImGui();
+		UploadMesh();
     }
 
     void Renderer::DrawFrame()
@@ -209,6 +214,9 @@ namespace vl::core
     void Renderer::Shutdown()
     {
 		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
+
+		vmaDestroyBuffer(_allocator, _vertexBuffer.Buffer, _vertexBuffer.Allocation);
+		vmaDestroyBuffer(_allocator, _indexBuffer.Buffer, _indexBuffer.Allocation);
 
 		DestroyImgui();
 		
@@ -365,7 +373,18 @@ namespace vl::core
 
     void Renderer::InitGraphicsPipeline()
     {
+
+		VkPushConstantRange pushConstantRange
+		{
+			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+			.offset = 0,
+			.size = sizeof(PushConstant),
+		};
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = vulkan::pipelineLayoutCreateInfo();
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
 		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
 		
 		_vertexShader = Shader::Create("VertexShader", "Renderer/assets/shaders/shader.vert", ShaderType::Vertex);
@@ -394,7 +413,15 @@ namespace vl::core
 			.stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
 		};
 
-		VkPipelineVertexInputStateCreateInfo _vertexInputInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+		auto bindingDesc = Vertex::bindingDescription();
+		VkPipelineVertexInputStateCreateInfo _vertexInputInfo = 
+		{ 
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+			.vertexBindingDescriptionCount = 1,
+			.pVertexBindingDescriptions = &bindingDesc,
+			.vertexAttributeDescriptionCount = (uint32_t)Vertex::attributeDescriptions().size(),
+			.pVertexAttributeDescriptions = Vertex::attributeDescriptions().data(),
+		};
 
 		VkPipelineInputAssemblyStateCreateInfo _inputAssemblyInfo =
 		{
@@ -517,6 +544,10 @@ namespace vl::core
 		vkDestroyShaderModule(_logicalDevice, vertexShaderModule, nullptr);
 		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
     }
+
+	void Renderer::InitDescriptorPool()
+	{
+	}
 
 	void Renderer::InitImGui()
 	{
@@ -806,7 +837,42 @@ namespace vl::core
 
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		VkBuffer vertexBuffers[] = { _vertexBuffer.Buffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT16);
+
+		static float angle = 0.0f;
+		glm::mat4 proyection = glm::perspective(glm::radians(45.f), float(_width) / _height, 0.01f, 10000.f);
+		glm::mat4 view = glm::lookAt(glm::vec3{ 0.0f, 0.0f, 3.0f }, glm::vec3{ 0, 0, 0 }, glm::vec3{0, 1, 0});
+		glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3{ 0, 1, 0 });
+		angle += 0.1f;
+
+		//MVP => P * V * M
+		PushConstant pushConstant
+		{
+			.transform = proyection * view * model,
+		};
+		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
+		for (int i = 0; i < 1000; i++)
+		{
+			vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+		}
+
+		pushConstant =
+		{
+			.transform = proyection * view * glm::translate(glm::mat4(1.0f), glm::vec3{ 1.25f, 0, 0 }),
+		};
+		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
+		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+
+		glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{ -1.25f, 0, 0 });
+		pushConstant =
+		{
+			.transform = proyection * view * glm::scale(translate, glm::vec3{ 0.9f, 0.3, 1.0f }),
+		};
+		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
+		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
 
 		vkCmdEndRendering(commandBuffer);
 	}
@@ -822,5 +888,102 @@ namespace vl::core
 		ImGui_ImplVulkan_RenderDrawData(data, commandBuffer);
 
 		vkCmdEndRendering(commandBuffer);
+	}
+
+	void Renderer::UploadMesh()
+	{
+		mesh::Square mesh;
+		const size_t vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
+		const size_t indexBufferSize = mesh.indices.size() * sizeof(uint16_t);
+
+		_vertexBuffer = CreateBuffer(vertexBufferSize,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VMA_MEMORY_USAGE_GPU_ONLY);
+
+		_indexBuffer = CreateBuffer(indexBufferSize,
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VMA_MEMORY_USAGE_GPU_ONLY);
+
+		vulkan::AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VMA_MEMORY_USAGE_CPU_ONLY);
+
+		//Stagin Buffer
+		void* data = staging.Allocation->GetMappedData();
+		memcpy(data, mesh.vertices.data(), vertexBufferSize);
+		memcpy((char*)data + vertexBufferSize, mesh.indices.data(), indexBufferSize);
+
+		ImmediateSubmit([&](VkCommandBuffer cmd) 
+			{
+				VkBufferCopy vertexCopy{ 0 };
+				vertexCopy.dstOffset = 0;
+				vertexCopy.srcOffset = 0;
+				vertexCopy.size = vertexBufferSize;
+
+				vkCmdCopyBuffer(cmd, staging.Buffer, _vertexBuffer.Buffer, 1, &vertexCopy);
+
+
+				VkBufferCopy indexCopy{ 0 };
+				indexCopy.dstOffset = 0;
+				indexCopy.srcOffset = vertexBufferSize;
+				indexCopy.size = indexBufferSize;
+
+				vkCmdCopyBuffer(cmd, staging.Buffer, _indexBuffer.Buffer, 1, &indexCopy);
+			}
+		);
+
+		vmaDestroyBuffer(_allocator, staging.Buffer, staging.Allocation);
+	}
+
+	void Renderer::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+	{
+		VK_CHECK(vkResetFences(_logicalDevice, 1, &_immediateData.Fence));
+		VK_CHECK(vkResetCommandBuffer(_immediateData.CommandBuffer, 0));
+
+		VkCommandBuffer cmd = _immediateData.CommandBuffer;
+
+		VkCommandBufferBeginInfo beginInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+			.pInheritanceInfo = nullptr,
+		};
+
+		VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+		function(cmd);
+
+		VK_CHECK(vkEndCommandBuffer(cmd));
+
+		VkCommandBufferSubmitInfo cmdinfo = vulkan::commandBufferSubmitInfo(cmd);
+		VkSubmitInfo2 submit = vulkan::submitInfo2(cmdinfo, nullptr, nullptr);
+
+		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immediateData.Fence));
+
+		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_immediateData.Fence, true, UINT64_MAX));
+	}
+
+	vulkan::AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+	{
+		VkBufferCreateInfo bufferInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.pNext = nullptr,
+			.size = allocSize,
+			.usage = usage,
+		};
+
+		VmaAllocationCreateInfo vmaallocInfo\
+		{
+			.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+				.usage = memoryUsage,
+		};
+
+		vulkan::AllocatedBuffer newBuffer;
+		VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.Buffer, &newBuffer.Allocation, &newBuffer.Info));
+
+		return newBuffer;
 	}
 }
