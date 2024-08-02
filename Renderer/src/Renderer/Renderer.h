@@ -8,6 +8,12 @@ namespace vl::core
 {
 	typedef std::function<void()> ImGuiRenderFn;
 
+	struct CubeRenderData
+	{
+		glm::mat4 model;
+		glm::vec4 color;
+	};
+
 	class Renderer
 	{
 	public:
@@ -19,11 +25,11 @@ namespace vl::core
 		void OnResize(uint32_t width, uint32_t height);
 		void OnImGuiRender(ImGuiRenderFn imguiRenderFuntion);
 
-		void StartFrame();
+		void StartFrame(const glm::mat4& vpMatrix);
 		void SubmitFrame();
 
 		void SetClearColor(glm::vec4 clearColor);
-		void DrawTriangle();
+		void DrawCube(glm::vec3 position, glm::vec4 color);
 
 		void Init();
 		void Shutdown();
@@ -53,6 +59,10 @@ namespace vl::core
 
 		VkDescriptorPool _imGuiDescriptorPool = VK_NULL_HANDLE;
 
+		VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
+		VkDescriptorSetLayout _storageDescriptorSetLayout = VK_NULL_HANDLE;
+		VkDescriptorSet _storageDescriptorSet = VK_NULL_HANDLE;
+
 		uint32_t _width = 0;
 		uint32_t _height = 0;
 		uint8_t _currentFrame = 0;
@@ -68,6 +78,13 @@ namespace vl::core
 		std::shared_ptr<vl::core::Shader> _fragmentShader = nullptr;
 		vulkan::AllocatedBuffer _vertexBuffer = {};
 		vulkan::AllocatedBuffer _indexBuffer = {};
+		vulkan::AllocatedBuffer _indirectBuffer = {};
+
+		glm::mat4 _vpMatrix = glm::mat4(1.0f);
+
+		vulkan::AllocatedBuffer _transformsStorageBuffer = {};
+		vulkan::AllocatedBuffer _transformsStagingBuffer = {};
+		std::vector<CubeRenderData> _transforms;
 
 	private:
 		void InitVulkan();
@@ -77,6 +94,8 @@ namespace vl::core
 		void InitGraphicsPipeline();
 		void InitDescriptorPool();
 		void InitImGui();
+
+		void InitStorageDescriptors();
 
 		void CreateSwapchain();
 		void RecreateSwapchain();
@@ -91,6 +110,8 @@ namespace vl::core
 		void DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 		void UploadMesh();
+		void GenerateTransformsStorageBuffer();
+		void UpdateTransformsStorage();
 
 		vulkan::AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);

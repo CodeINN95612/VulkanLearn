@@ -14,19 +14,28 @@ public:
 	void Shutdown();
 
 	void OnResize(uint32_t width, uint32_t height);
+	void OnScroll(double yoffset);
 
 private:
 	std::unique_ptr<vl::core::Renderer> _renderer = nullptr;
 	GLFWwindow* _pWindow = nullptr;
 
-	uint32_t _width = 800;
-	uint32_t _height = 600;
+	uint32_t _width = 1400;
+	uint32_t _height = 800;
 
 	bool _doRender = true;
 	double _fps = 0.0f;
 
 	glm::vec4 _clearColor{ 0.007f, 0.007f, 0.007f, 1.f };
 
+	glm::vec3 _camPositon = { 3.0f, 3.0f, 3.0f };
+	float _zoom = 45.0f;
+
+	std::vector<glm::vec3> _cubePositions;
+	std::vector<glm::vec4> _cubeColors;
+
 private:
 	void OnImguiRender();
+
+	void AddCube();
 };

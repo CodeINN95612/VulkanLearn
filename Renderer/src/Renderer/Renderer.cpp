@@ -13,6 +13,7 @@
 #include "Renderer/Vertex.h"
 #include "Renderer/Mesh/Triangle.h"
 #include "Renderer/Mesh/Square.h"
+#include "Renderer/Mesh/Cube.h"
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL messageCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -131,6 +132,9 @@ namespace vl::core
 		InitSyncObjects();
 		InitSwapchain();
 		InitCommands();
+		InitDescriptorPool();
+		GenerateTransformsStorageBuffer();
+		InitStorageDescriptors();
 		InitGraphicsPipeline();
 		InitImGui();
 		UploadMesh();
@@ -138,6 +142,8 @@ namespace vl::core
 
     void Renderer::DrawFrame()
     {
+		UpdateTransformsStorage();
+
 		vulkan::Frame& currentFrame = CurrentFrame();
 
 		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &currentFrame.Fence, VK_TRUE, UINT64_MAX));
@@ -192,8 +198,10 @@ namespace vl::core
 		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
-	void Renderer::StartFrame()
+	void Renderer::StartFrame(const glm::mat4& vpMatrix)
 	{
+		_vpMatrix = vpMatrix;
+		_transforms.clear();
 	}
 
 	void Renderer::SubmitFrame()
@@ -206,9 +214,16 @@ namespace vl::core
 		_clearColor = clearColor;
 	}
 
-	void Renderer::DrawTriangle()
+	void Renderer::DrawCube(glm::vec3 position, glm::vec4 color)
 	{
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
 
+		CubeRenderData cubeData
+		{ 
+			.model = model,
+			.color = color 
+		};
+		_transforms.push_back(cubeData);
 	}
 
     void Renderer::Shutdown()
@@ -217,6 +232,7 @@ namespace vl::core
 
 		vmaDestroyBuffer(_allocator, _vertexBuffer.Buffer, _vertexBuffer.Allocation);
 		vmaDestroyBuffer(_allocator, _indexBuffer.Buffer, _indexBuffer.Allocation);
+		vmaDestroyBuffer(_allocator, _indirectBuffer.Buffer, _indirectBuffer.Allocation);
 
 		DestroyImgui();
 		
@@ -384,6 +400,8 @@ namespace vl::core
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = vulkan::pipelineLayoutCreateInfo();
 		pipelineLayoutInfo.pushConstantRangeCount = 1;
 		pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+		pipelineLayoutInfo.pSetLayouts = &_storageDescriptorSetLayout;
+		pipelineLayoutInfo.setLayoutCount = 1;
 
 		VK_CHECK(vkCreatePipelineLayout(_logicalDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout));
 		
@@ -547,6 +565,17 @@ namespace vl::core
 
 	void Renderer::InitDescriptorPool()
 	{
+		VkDescriptorPoolSize poolSize = {};
+		poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		poolSize.descriptorCount = 1;
+
+		VkDescriptorPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &poolSize;
+		poolInfo.maxSets = 1;
+
+		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool));
 	}
 
 	void Renderer::InitImGui()
@@ -557,6 +586,7 @@ namespace vl::core
 			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
 			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
@@ -789,8 +819,52 @@ namespace vl::core
 
 	}
 
+	void Renderer::InitStorageDescriptors()
+	{
+		VkDescriptorSetLayoutBinding layoutBinding = {};
+		layoutBinding.binding = 0;
+		layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		layoutBinding.descriptorCount = 1;
+		layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; 
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &layoutBinding;
+
+		VK_CHECK(vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_storageDescriptorSetLayout));
+
+		VkDescriptorSetAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = _descriptorPool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = &_storageDescriptorSetLayout;
+
+		VK_CHECK(vkAllocateDescriptorSets(_logicalDevice, &allocInfo, &_storageDescriptorSet));
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = _transformsStorageBuffer.Buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet descriptorWrite = {};
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = _storageDescriptorSet;
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;
+
+		vkUpdateDescriptorSets(_logicalDevice, 1, &descriptorWrite, 0, nullptr);
+	}
+
 	void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
 	{
+		if (_transforms.size() == 0)
+		{
+			return;
+		}
+
 		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(
 			_drawData.Image.View,
 			nullptr,
@@ -842,37 +916,22 @@ namespace vl::core
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT16);
 
-		static float angle = 0.0f;
-		glm::mat4 proyection = glm::perspective(glm::radians(45.f), float(_width) / _height, 0.01f, 10000.f);
-		glm::mat4 view = glm::lookAt(glm::vec3{ 0.0f, 0.0f, 3.0f }, glm::vec3{ 0, 0, 0 }, glm::vec3{0, 1, 0});
-		glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3{ 0, 1, 0 });
-		angle += 0.1f;
+		vkCmdBindDescriptorSets(commandBuffer,
+			VK_PIPELINE_BIND_POINT_GRAPHICS, // or GRAPHICS
+			_pipelineLayout,
+			0,
+			1,
+			&_storageDescriptorSet,
+			0,
+			nullptr);
 
-		//MVP => P * V * M
 		PushConstant pushConstant
 		{
-			.transform = proyection * view * model,
+			.transform = _vpMatrix,
 		};
 		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
-		for (int i = 0; i < 1000; i++)
-		{
-			vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
-		}
 
-		pushConstant =
-		{
-			.transform = proyection * view * glm::translate(glm::mat4(1.0f), glm::vec3{ 1.25f, 0, 0 }),
-		};
-		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
-		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
-
-		glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{ -1.25f, 0, 0 });
-		pushConstant =
-		{
-			.transform = proyection * view * glm::scale(translate, glm::vec3{ 0.9f, 0.3, 1.0f }),
-		};
-		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
-		vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, 36, (uint32_t)_transforms.size(), 0, 0, 0);
 
 		vkCmdEndRendering(commandBuffer);
 	}
@@ -892,9 +951,10 @@ namespace vl::core
 
 	void Renderer::UploadMesh()
 	{
-		mesh::Square mesh;
+		mesh::Cube mesh;
 		const size_t vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
 		const size_t indexBufferSize = mesh.indices.size() * sizeof(uint16_t);
+		const size_t indirectBufferSize = sizeof(VkDrawIndexedIndirectCommand);
 
 		_vertexBuffer = CreateBuffer(vertexBufferSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
@@ -906,7 +966,12 @@ namespace vl::core
 			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VMA_MEMORY_USAGE_GPU_ONLY);
 
-		vulkan::AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize,
+		_indirectBuffer = CreateBuffer(indirectBufferSize,
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VMA_MEMORY_USAGE_GPU_ONLY);
+
+		vulkan::AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize + indirectBufferSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -915,13 +980,22 @@ namespace vl::core
 		memcpy(data, mesh.vertices.data(), vertexBufferSize);
 		memcpy((char*)data + vertexBufferSize, mesh.indices.data(), indexBufferSize);
 
+		VkDrawIndexedIndirectCommand indirectCommand
+		{
+			.indexCount = (uint32_t)mesh.indices.size(),
+			.instanceCount = 100000,
+			.firstIndex = 0,
+			.vertexOffset = 0,
+			.firstInstance = 0,
+		};
+		memcpy((char*)data + vertexBufferSize + indexBufferSize, &indirectCommand, indirectBufferSize);
+
 		ImmediateSubmit([&](VkCommandBuffer cmd) 
 			{
 				VkBufferCopy vertexCopy{ 0 };
 				vertexCopy.dstOffset = 0;
 				vertexCopy.srcOffset = 0;
 				vertexCopy.size = vertexBufferSize;
-
 				vkCmdCopyBuffer(cmd, staging.Buffer, _vertexBuffer.Buffer, 1, &vertexCopy);
 
 
@@ -929,8 +1003,13 @@ namespace vl::core
 				indexCopy.dstOffset = 0;
 				indexCopy.srcOffset = vertexBufferSize;
 				indexCopy.size = indexBufferSize;
-
 				vkCmdCopyBuffer(cmd, staging.Buffer, _indexBuffer.Buffer, 1, &indexCopy);
+
+				VkBufferCopy indirectCopy{ 0 };
+				indirectCopy.dstOffset = 0;
+				indirectCopy.srcOffset = vertexBufferSize + indexBufferSize;
+				indirectCopy.size = indirectBufferSize;
+				vkCmdCopyBuffer(cmd, staging.Buffer, _indirectBuffer.Buffer, 1, &indirectCopy);
 			}
 		);
 
@@ -963,6 +1042,41 @@ namespace vl::core
 		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immediateData.Fence));
 
 		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_immediateData.Fence, true, UINT64_MAX));
+	}
+
+	void Renderer::UpdateTransformsStorage()
+	{
+		if (_transforms.size() == 0)
+		{
+			return;
+		}
+
+		size_t size = _transforms.size() * sizeof(CubeRenderData);
+		void* data = _transformsStagingBuffer.Allocation->GetMappedData();
+		memcpy(data, _transforms.data(), size);
+
+		ImmediateSubmit([&](VkCommandBuffer cmd)
+			{
+				VkBufferCopy vertexCopy{ 0 };
+				vertexCopy.dstOffset = 0;
+				vertexCopy.srcOffset = 0;
+				vertexCopy.size = size;
+				vkCmdCopyBuffer(cmd, _transformsStagingBuffer.Buffer, _transformsStorageBuffer.Buffer, 1, &vertexCopy);
+			}
+		);
+	}
+
+	void Renderer::GenerateTransformsStorageBuffer()
+	{
+		size_t storageSize = 1024 * sizeof(CubeRenderData);
+		_transformsStorageBuffer = CreateBuffer(storageSize,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VMA_MEMORY_USAGE_GPU_ONLY);
+
+		_transformsStagingBuffer = CreateBuffer(storageSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VMA_MEMORY_USAGE_CPU_TO_GPU);
 	}
 
 	vulkan::AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
