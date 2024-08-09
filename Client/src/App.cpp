@@ -1,9 +1,8 @@
 #include "App.h"
 #include <imgui.h>
 
-App::App()
+App::App() : _camera(_width, _height)
 {
-
 }
 
 void App::Run()
@@ -31,7 +30,7 @@ void App::InitWindow()
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 	//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 	_pWindow = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
-	//glfwSetInputMode(_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	glfwSetInputMode(_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	glfwSetWindowUserPointer(_pWindow, this);
 
 	glfwSetFramebufferSizeCallback(_pWindow, [](GLFWwindow* window, int width, int height)
@@ -48,6 +47,13 @@ void App::InitWindow()
 		}
 	);
 
+	glfwSetCursorPosCallback(_pWindow, [](GLFWwindow* window, double xpos, double ypos)
+		{
+			auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+			app->OnMouseMove(xpos, ypos);
+		}
+	);
+
 	if (!_pWindow) {
 		throw std::exception("Error al crear la ventana");
 	}
@@ -55,23 +61,35 @@ void App::InitWindow()
 
 void App::Loop()
 {
+	VL_PROFILE_BEGIN_SESSION("App Loop", "loop.vlprof.json");
+
 	double lastTime = glfwGetTime();
 	double deltaTime = 0.0;
 	double lastFrame = 0.0;
 	int frameCount = 0;
 
+	GenerateChunk();
+
 	while (!glfwWindowShouldClose(_pWindow)) {
+		VL_PROFILE_SCOPE("Frame");
 		float currentFrame = static_cast<float>(glfwGetTime());
 		deltaTime = currentFrame - lastFrame;
 		lastFrame = currentFrame;
 
-		glfwPollEvents();
+		{
+			VL_PROFILE_SCOPE("glfwPollEvents");
+			glfwPollEvents();
+		}
 
-		//OnUpdate(_deltaTime);
-
+		{
+			VL_PROFILE_SCOPE("OnUpdate");
+			OnUpdate((float)deltaTime);
+		}
 
 		if (_doRender)
 		{
+			VL_PROFILE_SCOPE("Render");
+
 			_renderer->OnImGuiRender([this]() 
 				{
 					OnImguiRender();
@@ -80,16 +98,7 @@ void App::Loop()
 
 			_renderer->SetClearColor(_clearColor);
 
-			glm::mat4 proj = glm::perspective(glm::radians(_zoom), (float)_width / (float)_height, 0.1f, 100.0f);
-			proj[1][1] *= -1;
-			glm::mat4 view = glm::lookAt(_camPositon, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-
-			_renderer->StartFrame(proj * view);
-
-			for (size_t i = 0; i < _cubePositions.size(); i++)
-			{
-				_renderer->DrawCube(_cubePositions[i], _cubeColors[i]);
-			}
+			_renderer->StartFrame(_camera.GetViewProjectionMatrix());
 
 			_renderer->SubmitFrame();
 		}
@@ -99,14 +108,19 @@ void App::Loop()
 		}
 
 		// Calculate FPS
-		double currentTime = glfwGetTime();
-		frameCount++;
-		if (currentTime - lastTime >= 0.5) {
-			_fps = frameCount / (currentTime - lastTime);;
-			frameCount = 0;
-			lastTime = currentTime;
+		{
+			VL_PROFILE_SCOPE("CalculateFPS");
+			double currentTime = glfwGetTime();
+			frameCount++;
+			if (currentTime - lastTime >= 0.5) {
+				_fps = frameCount / (currentTime - lastTime);
+				frameCount = 0;
+				lastTime = currentTime;
+			}
 		}
 	}
+
+	VL_PROFILE_END_SESSION();
 }
 
 void App::Shutdown()
@@ -115,6 +129,18 @@ void App::Shutdown()
 
 	glfwDestroyWindow(_pWindow);
 	glfwTerminate();
+}
+
+void App::OnUpdate(float dt)
+{
+	if (glfwGetKey(_pWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+	{
+		static bool enabled = false;
+		enabled = !enabled;
+		glfwSetInputMode(_pWindow, GLFW_CURSOR, enabled ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+	}
+
+	_camera.OnUpdate(_pWindow, dt);
 }
 
 void App::OnResize(uint32_t width, uint32_t height)
@@ -128,7 +154,22 @@ void App::OnResize(uint32_t width, uint32_t height)
 
 void App::OnScroll(double yoffset)
 {
-	_zoom -= float(yoffset);
+	_camera.OnScroll((float)yoffset);
+}
+
+void App::OnMouseMove(double xPos, double yPos)
+{
+	static double lastX = xPos;
+	static double lastY = yPos;
+
+	double xoffset = xPos - lastX;
+	double yoffset = lastY - yPos;
+
+	_camera.OnMouseMove((float)xoffset, (float)yoffset);
+
+	lastX = xPos;
+	lastY = yPos;
+
 }
 
 void App::OnImguiRender()
@@ -146,20 +187,19 @@ void App::OnImguiRender()
 		{
 			AddCube();
 		}
-	}
-	ImGui::End();
 
-	if (ImGui::Begin("Camera"))
-	{
-		ImGui::SliderFloat3("Position", &_camPositon.x, -10.0f, 10.0f);
-		ImGui::SliderFloat("Zoom", &_zoom, 1.0f, 99.0f);
+		ImGui::Separator();
+		ImGui::Text("Camera");
+		float sensitivity = _camera.GetSensitivity();
+		ImGui::SliderFloat("Sensitivity",  &sensitivity, 0.1f, 10.0f);
+		_camera.SetSensitivity(sensitivity);
 	}
 	ImGui::End();
 }
 
 void App::AddCube()
 {
-	//random positon between -5 and 5
+	//random grid positon between -5 and 5
 	float x = static_cast<float>(rand() % 10) - 5.0f;
 	float y = static_cast<float>(rand() % 10) - 5.0f;
 	float z = static_cast<float>(rand() % 10) - 5.0f;
@@ -171,4 +211,24 @@ void App::AddCube()
 
 	_cubePositions.push_back({x, y, z});
 	_cubeColors.push_back({ r, g, b, a });
+}
+
+void App::GenerateChunk()
+{
+	const int size = 10;
+	for (int i = 0; i < size; i++)
+	{
+		for (int j = 0; j < size; j++)
+		{
+			for (int k = 0; k < size; k++)
+			{
+				float x = i;
+				float y = j;
+				float z = k;
+				
+				float divisor = size + 1.0f;
+				_renderer->DrawCube({ x, y, z }, { x / divisor, y / divisor, z / divisor, 1.0f });
+			}
+		}
+	}
 }

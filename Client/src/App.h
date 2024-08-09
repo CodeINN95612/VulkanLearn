@@ -2,6 +2,8 @@
 
 #include <Renderer/Renderer.h>
 
+#include "Camera.h"
+
 class App
 {
 public:
@@ -13,8 +15,10 @@ public:
 	void Loop();
 	void Shutdown();
 
+	void OnUpdate(float dt);
 	void OnResize(uint32_t width, uint32_t height);
 	void OnScroll(double yoffset);
+	void OnMouseMove(double xPos, double yPos);
 
 private:
 	std::unique_ptr<vl::core::Renderer> _renderer = nullptr;
@@ -28,14 +32,14 @@ private:
 
 	glm::vec4 _clearColor{ 0.007f, 0.007f, 0.007f, 1.f };
 
-	glm::vec3 _camPositon = { 3.0f, 3.0f, 3.0f };
-	float _zoom = 45.0f;
-
 	std::vector<glm::vec3> _cubePositions;
 	std::vector<glm::vec4> _cubeColors;
+
+	Camera _camera;
 
 private:
 	void OnImguiRender();
 
 	void AddCube();
+	void GenerateChunk();
 };

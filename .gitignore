@@ -285,3 +285,6 @@ FodyWeavers.xsd
 
 # Include Premake
 !external/premake5.exe
+
+#Profiling
+**.vlprof.json

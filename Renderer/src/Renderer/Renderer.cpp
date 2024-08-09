@@ -80,7 +80,7 @@ namespace vl::core
 		_resized = true;
     }
 
-	void Renderer::OnImGuiRender(ImGuiRenderFn imguiRenderFuntion)
+	void Renderer::OnImGuiRender(ImGuiRenderFn imguiRenderFuntion, bool showRendererWindow)
 	{
 		if (_resized) {
 			RecreateSwapchain();
@@ -121,6 +121,15 @@ namespace vl::core
 
 		imguiRenderFuntion();
 
+		if (showRendererWindow)
+		{
+			ImGui::Begin("Renderer");
+			ImGui::Text("Clear Color {%.2f, %.2f, %.2f}", _clearColor.r, _clearColor.g, _clearColor.b);
+			ImGui::Text("Buffer max size bytes %d", BUFFER_MAX_SIZE_BYTES);
+			ImGui::Text("Cubes size bytes %d", _cubesData.size() * sizeof(CubeRenderData));
+			ImGui::End();
+		}
+
 		ImGui::End();
 
 		ImGui::Render();
@@ -128,6 +137,7 @@ namespace vl::core
 
     void Renderer::Init()
 	{
+		VL_PROFILE_BEGIN_SESSION("Renderer Init", "init.vlprof.json");
 		InitVulkan();
 		InitSyncObjects();
 		InitSwapchain();
@@ -138,74 +148,91 @@ namespace vl::core
 		InitGraphicsPipeline();
 		InitImGui();
 		UploadMesh();
+		VL_PROFILE_END_SESSION();
     }
 
     void Renderer::DrawFrame()
     {
 		UpdateTransformsStorage();
 
-		vulkan::Frame& currentFrame = CurrentFrame();
-
-		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &currentFrame.Fence, VK_TRUE, UINT64_MAX));
-
-		uint32_t imageIndex;
-		VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapchain.Handle, UINT64_MAX, currentFrame.ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-			_resized = true;
-			RecreateSwapchain();
-			return;
-		}
-		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-			throw std::exception("No fue posible obtener la imagen");
-		}
-
-		VK_CHECK(vkResetFences(_logicalDevice, 1, &currentFrame.Fence));
-
-		_drawData.ImageExtent.width = glm::min(_swapchain.Extent.width, _drawData.Image.Extent.width);
-		_drawData.ImageExtent.height = glm::min(_swapchain.Extent.height, _drawData.Image.Extent.height);
-
+		Frame& currentFrame = CurrentFrame();
 		VkCommandBuffer currentCommandBuffer = currentFrame.CommandBuffer;
+		uint32_t imageIndex;
 
-		VK_CHECK(vkResetCommandBuffer(currentCommandBuffer, 0));
+		{
+			VL_PROFILE_SCOPE("Pre RecordCommandBuffer");
+			VK_CHECK(vkWaitForFences(_logicalDevice, 1, &currentFrame.Fence, VK_TRUE, UINT64_MAX));
+
+			VkResult result = vkAcquireNextImageKHR(_logicalDevice, _swapchain.Handle, UINT64_MAX, currentFrame.ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+			if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+				_resized = true;
+				RecreateSwapchain();
+				return;
+			}
+			else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+				throw std::exception("No fue posible obtener la imagen");
+			}
+
+			VK_CHECK(vkResetFences(_logicalDevice, 1, &currentFrame.Fence));
+
+			_drawData.ImageExtent.width = glm::min(_swapchain.Extent.width, _drawData.Image.Extent.width);
+			_drawData.ImageExtent.height = glm::min(_swapchain.Extent.height, _drawData.Image.Extent.height);
+
+			VK_CHECK(vkResetCommandBuffer(currentCommandBuffer, 0));
+		}
+
 
 		RecordCommandBuffer(currentCommandBuffer, imageIndex);
 
-		VkCommandBufferSubmitInfo commandBufferInfo = vulkan::commandBufferSubmitInfo(currentCommandBuffer);
+		{
+			VL_PROFILE_SCOPE("Post RecordCommandBuffer");
+			VkCommandBufferSubmitInfo commandBufferInfo = vulkan::commandBufferSubmitInfo(currentCommandBuffer);
 
-		VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = vulkan::semaphoreSubmitInfo(
-			currentFrame.ImageAvailableSemaphore,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR);
+			VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = vulkan::semaphoreSubmitInfo(
+				currentFrame.ImageAvailableSemaphore,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR);
 
-		VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = vulkan::semaphoreSubmitInfo(
-			currentFrame.RenderFinishedSemaphore,
-			VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
+			VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = vulkan::semaphoreSubmitInfo(
+				currentFrame.RenderFinishedSemaphore,
+				VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
 
-		VkSubmitInfo2 submitInfo2 = vulkan::submitInfo2(commandBufferInfo, &waitSemaphoreSubmitInfo, &signalSemaphoreSubmitInfo);
+			VkSubmitInfo2 submitInfo2 = vulkan::submitInfo2(commandBufferInfo, &waitSemaphoreSubmitInfo, &signalSemaphoreSubmitInfo);
 
-		VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, currentFrame.Fence));
+			VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo2, currentFrame.Fence));
 
-		VkPresentInfoKHR presentInfo = vulkan::presentInfoKHR(&_swapchain.Handle, &imageIndex, &currentFrame.RenderFinishedSemaphore);
+			VkPresentInfoKHR presentInfo = vulkan::presentInfoKHR(&_swapchain.Handle, &imageIndex, &currentFrame.RenderFinishedSemaphore);
 
-		result = vkQueuePresentKHR(_presentQueue, &presentInfo);
-		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _resized) {
-			_resized = true;
-			RecreateSwapchain();
+			VkResult result = vkQueuePresentKHR(_presentQueue, &presentInfo);
+			if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _resized) {
+				_resized = true;
+				RecreateSwapchain();
+			}
+			else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+				throw std::exception("No fue posible presentar en la cola de presentacion");
+			}
+
+			_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 		}
-		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-			throw std::exception("No fue posible presentar en la cola de presentacion");
-		}
 
-		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
 	void Renderer::StartFrame(const glm::mat4& vpMatrix)
 	{
+		VL_PROFILE_FUNCTION();
 		_vpMatrix = vpMatrix;
-		_transforms.clear();
+		//_cubesData.clear();
+
+		if (_firstRender)
+		{
+			_firstRender = false;
+
+			AllocateDescriptorSets(1);
+		}
 	}
 
 	void Renderer::SubmitFrame()
 	{
+		VL_PROFILE_FUNCTION();
 		DrawFrame();
 	}
 
@@ -216,6 +243,7 @@ namespace vl::core
 
 	void Renderer::DrawCube(glm::vec3 position, glm::vec4 color)
 	{
+		VL_PROFILE_FUNCTION();
 		glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
 
 		CubeRenderData cubeData
@@ -223,56 +251,72 @@ namespace vl::core
 			.model = model,
 			.color = color 
 		};
-		_transforms.push_back(cubeData);
+		_cubesData.push_back(cubeData);
 	}
 
     void Renderer::Shutdown()
     {
-		VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
-
-		vmaDestroyBuffer(_allocator, _vertexBuffer.Buffer, _vertexBuffer.Allocation);
-		vmaDestroyBuffer(_allocator, _indexBuffer.Buffer, _indexBuffer.Allocation);
-		vmaDestroyBuffer(_allocator, _indirectBuffer.Buffer, _indirectBuffer.Allocation);
-
-		DestroyImgui();
-		
-		vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
-
-		vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
-
-		vkDestroyImageView(_logicalDevice, _drawData.DepthImage.View, nullptr);
-		vmaDestroyImage(_allocator, _drawData.DepthImage.Handle, _drawData.DepthImage.Allocation);
-
-		vkDestroyImageView(_logicalDevice, _drawData.Image.View, nullptr);
-		vmaDestroyImage(_allocator, _drawData.Image.Handle, _drawData.Image.Allocation);
-
-		vkDestroyCommandPool(_logicalDevice, _immediateData.CommandPool, nullptr);
-		vkDestroyFence(_logicalDevice, _immediateData.Fence, nullptr);
-
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroySemaphore(_logicalDevice, _frames[i].ImageAvailableSemaphore, nullptr);
-			vkDestroySemaphore(_logicalDevice, _frames[i].RenderFinishedSemaphore, nullptr);
-			vkDestroyFence(_logicalDevice, _frames[i].Fence, nullptr);
-			vkDestroyCommandPool(_logicalDevice, _frames[i].CommandPool, nullptr);
-		}
-
-		DestroySwapchain();
-
-		vmaDestroyAllocator(_allocator);
-
-		vkDestroyDevice(_logicalDevice, nullptr);
-		vkDestroySurfaceKHR(_instance, _surface, nullptr);
-
-		if (_debugMessenger != VK_NULL_HANDLE)
+		VL_PROFILE_BEGIN_SESSION("Renderer Shutdown", "shutdown.vlprof.json");
 		{
-			vkb::destroy_debug_utils_messenger(_instance, _debugMessenger, nullptr);
+			VL_PROFILE_FUNCTION();
+
+			VK_CHECK(vkDeviceWaitIdle(_logicalDevice));
+
+			vmaDestroyBuffer(_allocator, _vertexBuffer.Buffer, _vertexBuffer.Allocation);
+			vmaDestroyBuffer(_allocator, _indexBuffer.Buffer, _indexBuffer.Allocation);\
+
+			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) 
+			{
+				vmaDestroyBuffer(_allocator, _frames[i].CubesStagingBuffer.Buffer, _frames[i].CubesStagingBuffer.Allocation);
+				vmaDestroyBuffer(_allocator, _frames[i].CubesStorageBuffer.Buffer, _frames[i].CubesStorageBuffer.Allocation);
+			}
+
+			vkDestroyDescriptorSetLayout(_logicalDevice, _storageDescriptorSetLayout, nullptr);
+			vkDestroyDescriptorPool(_logicalDevice, _descriptorPool, nullptr);
+
+			DestroyImgui();
+		
+			vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
+
+			vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
+
+			vkDestroyImageView(_logicalDevice, _drawData.DepthImage.View, nullptr);
+			vmaDestroyImage(_allocator, _drawData.DepthImage.Handle, _drawData.DepthImage.Allocation);
+
+			vkDestroyImageView(_logicalDevice, _drawData.Image.View, nullptr);
+			vmaDestroyImage(_allocator, _drawData.Image.Handle, _drawData.Image.Allocation);
+
+			vkDestroyCommandPool(_logicalDevice, _immediateData.CommandPool, nullptr);
+			vkDestroyFence(_logicalDevice, _immediateData.Fence, nullptr);
+
+			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+				vkDestroySemaphore(_logicalDevice, _frames[i].ImageAvailableSemaphore, nullptr);
+				vkDestroySemaphore(_logicalDevice, _frames[i].RenderFinishedSemaphore, nullptr);
+				vkDestroyFence(_logicalDevice, _frames[i].Fence, nullptr);
+				vkDestroyCommandPool(_logicalDevice, _frames[i].CommandPool, nullptr);
+			}
+
+			DestroySwapchain();
+
+			vmaDestroyAllocator(_allocator);
+
+			vkDestroyDevice(_logicalDevice, nullptr);
+			vkDestroySurfaceKHR(_instance, _surface, nullptr);
+
+			if (_debugMessenger != VK_NULL_HANDLE)
+			{
+				vkb::destroy_debug_utils_messenger(_instance, _debugMessenger, nullptr);
+			}
+
+			vkDestroyInstance(_instance, nullptr);
 		}
 
-		vkDestroyInstance(_instance, nullptr);
+		VL_PROFILE_END_SESSION();
     }
 
     void Renderer::InitVulkan()
     {
+		VL_PROFILE_FUNCTION();
 		const char* appName = glfwGetWindowTitle(_pWindow);
 
 		vkb::InstanceBuilder builder;
@@ -314,6 +358,12 @@ namespace vl::core
 
 		vkb::PhysicalDevice vkb_physicalDevice = physicalDevice_ret.value();
 		_physicalDevice = vkb_physicalDevice.physical_device;
+
+		//Get storage buffer max size
+		VkPhysicalDeviceProperties deviceProperties;
+		vkGetPhysicalDeviceProperties(_physicalDevice, &deviceProperties);
+		VkDeviceSize maxStorageBufferSize = deviceProperties.limits.maxStorageBufferRange;
+		spdlog::info("Max Storage Buffer Size: {0}", maxStorageBufferSize);
 
 		vkb::DeviceBuilder deviceBuilder{ vkb_physicalDevice };
 		auto vkbDevice_ret = deviceBuilder.build();
@@ -389,7 +439,6 @@ namespace vl::core
 
     void Renderer::InitGraphicsPipeline()
     {
-
 		VkPushConstantRange pushConstantRange
 		{
 			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
@@ -565,21 +614,23 @@ namespace vl::core
 
 	void Renderer::InitDescriptorPool()
 	{
+		uint32_t maxStorageSetCount = 1000;
 		VkDescriptorPoolSize poolSize = {};
 		poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		poolSize.descriptorCount = 1;
+		poolSize.descriptorCount = maxStorageSetCount;
 
 		VkDescriptorPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		poolInfo.poolSizeCount = 1;
 		poolInfo.pPoolSizes = &poolSize;
-		poolInfo.maxSets = 1;
+		poolInfo.maxSets = maxStorageSetCount;
 
 		VK_CHECK(vkCreateDescriptorPool(_logicalDevice, &poolInfo, nullptr, &_descriptorPool));
 	}
 
 	void Renderer::InitImGui()
 	{
+		VL_PROFILE_FUNCTION();
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
@@ -768,6 +819,7 @@ namespace vl::core
 
 	void Renderer::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 	{
+		VL_PROFILE_FUNCTION();
 		VkCommandBufferBeginInfo beginInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -778,7 +830,7 @@ namespace vl::core
 		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
 		vulkan::transitionImage(commandBuffer, _drawData.Image.Handle, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
+		
 		DrawBackground(commandBuffer);
 
 		vulkan::transitionImage(commandBuffer, _drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -804,6 +856,7 @@ namespace vl::core
 
 	void Renderer::DrawBackground(VkCommandBuffer commandBuffer)
 	{
+		VL_PROFILE_FUNCTION();
 		VkClearColorValue clearColor
 		{ 
 			{
@@ -816,7 +869,6 @@ namespace vl::core
 		VkImageSubresourceRange clearRange = vl::core::vulkan::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
 		vkCmdClearColorImage(commandBuffer, _drawData.Image.Handle, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
-
 	}
 
 	void Renderer::InitStorageDescriptors()
@@ -833,23 +885,34 @@ namespace vl::core
 		layoutInfo.pBindings = &layoutBinding;
 
 		VK_CHECK(vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_storageDescriptorSetLayout));
+	}
 
-		VkDescriptorSetAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = _descriptorPool;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.pSetLayouts = &_storageDescriptorSetLayout;
+	void Renderer::AllocateDescriptorSets(uint32_t count)
+	{
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			VkDescriptorSetAllocateInfo allocInfo = {};
+			allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			allocInfo.descriptorPool = _descriptorPool;
+			allocInfo.descriptorSetCount = 1;
+			allocInfo.pSetLayouts = &_storageDescriptorSetLayout;
 
-		VK_CHECK(vkAllocateDescriptorSets(_logicalDevice, &allocInfo, &_storageDescriptorSet));
+			VK_CHECK(vkAllocateDescriptorSets(_logicalDevice, &allocInfo, &_frames[i].CubesDescriptorSet));
 
+			UpdateStorageDescriptorSet(_frames[i].CubesDescriptorSet, _frames[i].CubesStorageBuffer.Buffer);
+		}
+	}
+
+	void Renderer::UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, VkBuffer buffer) const
+	{
 		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = _transformsStorageBuffer.Buffer;
+		bufferInfo.buffer = buffer;
 		bufferInfo.offset = 0;
 		bufferInfo.range = VK_WHOLE_SIZE;
 
 		VkWriteDescriptorSet descriptorWrite = {};
 		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite.dstSet = _storageDescriptorSet;
+		descriptorWrite.dstSet = descriptorSet;
 		descriptorWrite.dstBinding = 0;
 		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		descriptorWrite.descriptorCount = 1;
@@ -858,86 +921,99 @@ namespace vl::core
 		vkUpdateDescriptorSets(_logicalDevice, 1, &descriptorWrite, 0, nullptr);
 	}
 
-	void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
-	{
-		if (_transforms.size() == 0)
+    void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
+    {
+		VL_PROFILE_FUNCTION();
+        if (_cubesData.size() == 0)
+        {
+            return;
+        }
+
+        VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(
+            _drawData.Image.View,
+            nullptr,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        VkRenderingAttachmentInfo depthAttachment = vulkan::depthAttachmentInfo(
+            _drawData.DepthImage.View,
+            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+        VkRenderingInfo renderInfo = vulkan::renderingInfo(
+            _drawData.ImageExtent,
+            &colorAttachment,
+            &depthAttachment);
+
+        vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
+
+        VkViewport viewport
+        {
+            .x = 0,
+            .y = 0,
+            .width = float(_drawData.ImageExtent.width),
+            .height = float(_drawData.ImageExtent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f,
+        };
+
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor
+        {
+            .offset
+            {
+                .x = 0,
+                .y = 0
+            },
+            .extent
+            {
+                .width = _drawData.ImageExtent.width,
+                .height = _drawData.ImageExtent.height,
+            }
+        };
+
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        VkBuffer vertexBuffers[] = { _vertexBuffer.Buffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, _indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT16);
+
 		{
-			return;
+			VL_PROFILE_SCOPE("vkCmdBindDescriptorSets");
+			vkCmdBindDescriptorSets(commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS,
+				_pipelineLayout,
+				0,
+				1,
+				&CurrentFrame().CubesDescriptorSet,
+				0,
+				nullptr);
 		}
 
-		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(
-			_drawData.Image.View,
-			nullptr,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-		VkRenderingAttachmentInfo depthAttachment = vulkan::depthAttachmentInfo(
-			_drawData.DepthImage.View,
-			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-		VkRenderingInfo renderInfo = vulkan::renderingInfo(
-			_drawData.ImageExtent,
-			&colorAttachment,
-			&depthAttachment);
-
-		vkCmdBeginRendering(commandBuffer, &renderInfo);
-
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-
-		VkViewport viewport
 		{
-			.x = 0,
-			.y = 0,
-			.width = float(_drawData.ImageExtent.width),
-			.height = float(_drawData.ImageExtent.height),
-			.minDepth = 0.f,
-			.maxDepth = 1.f,
-		};
+			VL_PROFILE_SCOPE("vkCmdPushConstants");
 
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-		VkRect2D scissor
-		{
-			.offset
+			PushConstant pushConstant
 			{
-				.x = 0,
-				.y = 0
-			},
-			.extent
-			{
-				.width = _drawData.ImageExtent.width,
-				.height = _drawData.ImageExtent.height,
-			}
-		};
+				.transform = _vpMatrix,
+			};
+			vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
+		}
 
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-		VkBuffer vertexBuffers[] = { _vertexBuffer.Buffer };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, _indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT16);
-
-		vkCmdBindDescriptorSets(commandBuffer,
-			VK_PIPELINE_BIND_POINT_GRAPHICS, // or GRAPHICS
-			_pipelineLayout,
-			0,
-			1,
-			&_storageDescriptorSet,
-			0,
-			nullptr);
-
-		PushConstant pushConstant
 		{
-			.transform = _vpMatrix,
-		};
-		vkCmdPushConstants(commandBuffer, _pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pushConstant);
+			VL_PROFILE_SCOPE("vkCmdDrawIndexed");
+			size_t instanceCount = _cubesData.size();
+			vkCmdDrawIndexed(commandBuffer, 36, (uint32_t)instanceCount, 0, 0, 0);
+		}
 
-		vkCmdDrawIndexed(commandBuffer, 36, (uint32_t)_transforms.size(), 0, 0, 0);
-
-		vkCmdEndRendering(commandBuffer);
-	}
+        vkCmdEndRendering(commandBuffer);
+    }
 
 	void Renderer::DrawImGui(VkCommandBuffer commandBuffer, VkImageView targetImageView)
 	{
+		VL_PROFILE_FUNCTION();
 		VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		VkRenderingInfo renderInfo = vulkan::renderingInfo(_swapchain.Extent, &colorAttachment, nullptr);
 
@@ -951,10 +1027,10 @@ namespace vl::core
 
 	void Renderer::UploadMesh()
 	{
+		VL_PROFILE_FUNCTION();
 		mesh::Cube mesh;
 		const size_t vertexBufferSize = mesh.vertices.size() * sizeof(Vertex);
 		const size_t indexBufferSize = mesh.indices.size() * sizeof(uint16_t);
-		const size_t indirectBufferSize = sizeof(VkDrawIndexedIndirectCommand);
 
 		_vertexBuffer = CreateBuffer(vertexBufferSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
@@ -966,12 +1042,7 @@ namespace vl::core
 			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VMA_MEMORY_USAGE_GPU_ONLY);
 
-		_indirectBuffer = CreateBuffer(indirectBufferSize,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VMA_MEMORY_USAGE_GPU_ONLY);
-
-		vulkan::AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize + indirectBufferSize,
+		vulkan::AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -979,16 +1050,6 @@ namespace vl::core
 		void* data = staging.Allocation->GetMappedData();
 		memcpy(data, mesh.vertices.data(), vertexBufferSize);
 		memcpy((char*)data + vertexBufferSize, mesh.indices.data(), indexBufferSize);
-
-		VkDrawIndexedIndirectCommand indirectCommand
-		{
-			.indexCount = (uint32_t)mesh.indices.size(),
-			.instanceCount = 100000,
-			.firstIndex = 0,
-			.vertexOffset = 0,
-			.firstInstance = 0,
-		};
-		memcpy((char*)data + vertexBufferSize + indexBufferSize, &indirectCommand, indirectBufferSize);
 
 		ImmediateSubmit([&](VkCommandBuffer cmd) 
 			{
@@ -1004,12 +1065,6 @@ namespace vl::core
 				indexCopy.srcOffset = vertexBufferSize;
 				indexCopy.size = indexBufferSize;
 				vkCmdCopyBuffer(cmd, staging.Buffer, _indexBuffer.Buffer, 1, &indexCopy);
-
-				VkBufferCopy indirectCopy{ 0 };
-				indirectCopy.dstOffset = 0;
-				indirectCopy.srcOffset = vertexBufferSize + indexBufferSize;
-				indirectCopy.size = indirectBufferSize;
-				vkCmdCopyBuffer(cmd, staging.Buffer, _indirectBuffer.Buffer, 1, &indirectCopy);
 			}
 		);
 
@@ -1046,14 +1101,20 @@ namespace vl::core
 
 	void Renderer::UpdateTransformsStorage()
 	{
-		if (_transforms.size() == 0)
+		VL_PROFILE_FUNCTION();
+		if (_cubesData.size() == 0)
 		{
 			return;
 		}
 
-		size_t size = _transforms.size() * sizeof(CubeRenderData);
-		void* data = _transformsStagingBuffer.Allocation->GetMappedData();
-		memcpy(data, _transforms.data(), size);
+		auto& frame = CurrentFrame();
+		void* data = frame.CubesStagingBuffer.Allocation->GetMappedData();
+		void* copyDataRegion = _cubesData.data();
+		size_t size = _cubesData.size() * sizeof(CubeRenderData);
+		memcpy(data, copyDataRegion, size);
+
+		VkBuffer stagingBuffer = frame.CubesStagingBuffer.Buffer;
+		VkBuffer storageBuffer = frame.CubesStorageBuffer.Buffer;
 
 		ImmediateSubmit([&](VkCommandBuffer cmd)
 			{
@@ -1061,22 +1122,26 @@ namespace vl::core
 				vertexCopy.dstOffset = 0;
 				vertexCopy.srcOffset = 0;
 				vertexCopy.size = size;
-				vkCmdCopyBuffer(cmd, _transformsStagingBuffer.Buffer, _transformsStorageBuffer.Buffer, 1, &vertexCopy);
+				vkCmdCopyBuffer(cmd, stagingBuffer, storageBuffer, 1, &vertexCopy);
 			}
 		);
 	}
 
 	void Renderer::GenerateTransformsStorageBuffer()
 	{
-		size_t storageSize = 1024 * sizeof(CubeRenderData);
-		_transformsStorageBuffer = CreateBuffer(storageSize,
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-			| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VMA_MEMORY_USAGE_GPU_ONLY);
+		VL_PROFILE_FUNCTION();
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			_frames[i].CubesStagingBuffer = CreateBuffer(
+				BUFFER_MAX_SIZE_BYTES,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-		_transformsStagingBuffer = CreateBuffer(storageSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VMA_MEMORY_USAGE_CPU_TO_GPU);
+			_frames[i].CubesStorageBuffer = CreateBuffer(
+				BUFFER_MAX_SIZE_BYTES,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VMA_MEMORY_USAGE_GPU_ONLY);
+		}
 	}
 
 	vulkan::AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)

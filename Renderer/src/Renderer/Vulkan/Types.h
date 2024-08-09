@@ -4,16 +4,6 @@
 
 namespace vl::core::vulkan
 {
-	struct Frame
-	{
-		VkCommandPool CommandPool;
-		VkCommandBuffer CommandBuffer;
-
-		VkSemaphore ImageAvailableSemaphore;
-		VkSemaphore RenderFinishedSemaphore;
-		VkFence Fence;
-	};
-
 	struct Swapchain
 	{
 		VkSwapchainKHR Handle = VK_NULL_HANDLE;
@@ -51,12 +41,5 @@ namespace vl::core::vulkan
 		VkBuffer Buffer;
 		VmaAllocation Allocation;
 		VmaAllocationInfo Info;
-	};
-
-	struct BufferArray {
-
-		AllocatedBuffer IndexBuffer;
-		AllocatedBuffer VertexBuffer;
-		VkDeviceAddress VertexBufferAddress;
 	};
 }
