@@ -1,0 +1,51 @@
+#version 460
+
+layout(local_size_x = 256) in;
+
+struct CubeRenderData {
+	mat4 model;
+	vec4 color;
+};
+
+layout(set = 0, binding = 0) readonly buffer TransformsStorageBuffer {
+    CubeRenderData data[];
+} transformStorageBuffer;
+
+layout(set = 0, binding = 1) buffer VisibleTransformsStorageBuffer {
+    CubeRenderData data[];
+} visibleTransformStorageBuffer;
+
+layout(set = 0, binding = 2) buffer IndirectDrawBuffer {
+	uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+} indirectDrawBuffer;
+
+bool IsVisible(CubeRenderData cubeData){
+	//return true;
+	vec3 position = vec3(cubeData.model[3][0], cubeData.model[3][1], cubeData.model[3][2]);
+    
+    return (int(position.x) % 2) == 0 && (int(position.y) % 2) == 0 && (int(position.z) % 2) == 0;
+}
+
+void main() {
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= transformStorageBuffer.data.length()) {
+		return;
+	}
+
+	CubeRenderData cubeData = transformStorageBuffer.data[index];
+	if (IsVisible(cubeData)){
+		uint visibleIndex = atomicAdd(indirectDrawBuffer.instanceCount, 1);
+		visibleTransformStorageBuffer.data[visibleIndex] = cubeData;
+	}
+
+	if (index == 0) {
+        indirectDrawBuffer.indexCount = 36;
+        indirectDrawBuffer.firstIndex = 0;
+        indirectDrawBuffer.vertexOffset = 0;
+        indirectDrawBuffer.firstInstance = 0;
+    }
+}

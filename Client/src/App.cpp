@@ -11,6 +11,7 @@ void App::Run()
 
 	_renderer = vl::core::Renderer::Create(_pWindow, _width, _height);
 	_renderer->Init();
+	_cubeBuffer = _renderer->GetCubeBuffer();
 
 	Loop();
 
@@ -28,9 +29,11 @@ void App::InitWindow()
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-	//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 	_pWindow = glfwCreateWindow(_width, _height, "Vulkan Triangle", nullptr, nullptr);
+
+	_showCursor = false;
 	glfwSetInputMode(_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
 	glfwSetWindowUserPointer(_pWindow, this);
 
 	glfwSetFramebufferSizeCallback(_pWindow, [](GLFWwindow* window, int width, int height)
@@ -51,6 +54,13 @@ void App::InitWindow()
 		{
 			auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
 			app->OnMouseMove(xpos, ypos);
+		}
+	);
+
+	glfwSetKeyCallback(_pWindow, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+		{
+			auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+			app->OnKeyPressed(key, scancode, action, mods);
 		}
 	);
 
@@ -92,6 +102,7 @@ void App::Loop()
 
 			_renderer->OnImGuiRender([this]() 
 				{
+					VL_PROFILE_SCOPE("OnImguiRender");
 					OnImguiRender();
 				}
 			);
@@ -99,7 +110,6 @@ void App::Loop()
 			_renderer->SetClearColor(_clearColor);
 
 			_renderer->StartFrame(_camera.GetViewProjectionMatrix());
-
 			_renderer->SubmitFrame();
 		}
 		else
@@ -131,16 +141,41 @@ void App::Shutdown()
 	glfwTerminate();
 }
 
+static float secondTimer = 0;
 void App::OnUpdate(float dt)
 {
-	if (glfwGetKey(_pWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-	{
-		static bool enabled = false;
-		enabled = !enabled;
-		glfwSetInputMode(_pWindow, GLFW_CURSOR, enabled ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-	}
-
+	VL_PROFILE_FUNCTION();
 	_camera.OnUpdate(_pWindow, dt);
+
+	return;
+	secondTimer += dt;
+	static int x = 0;
+	static int y = 0;
+
+	//if (secondTimer > 0.2f)
+	/*{
+		const int size = 100;
+		secondTimer = 0;
+
+		if (y > size)
+		{
+			return;
+		}
+
+		for (int z = 0; z < size; z++)
+		{
+			glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
+			_cubes.push_back({ tranform, { x / float(size), y / float(size), z / float(size), 1.0f } });
+		}
+
+		x++;
+
+		if (x > size)
+		{
+			x = 0;
+			y++;
+		}
+	}*/
 }
 
 void App::OnResize(uint32_t width, uint32_t height)
@@ -170,6 +205,20 @@ void App::OnMouseMove(double xPos, double yPos)
 	lastX = xPos;
 	lastY = yPos;
 
+}
+
+void App::OnKeyPressed(int key, int scancode, int action, int mods)
+{
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+	{
+		glfwSetWindowShouldClose(_pWindow, GLFW_TRUE);
+	}
+
+	if (key == GLFW_KEY_P && action == GLFW_PRESS)
+	{
+		_showCursor = !_showCursor;
+		glfwSetInputMode(_pWindow, GLFW_CURSOR, _showCursor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+	}
 }
 
 void App::OnImguiRender()
@@ -209,13 +258,13 @@ void App::AddCube()
 	float b = static_cast<float>(rand() % 255) / 255.0f;
 	float a = static_cast<float>(rand() % 255) / 255.0f;
 
-	_cubePositions.push_back({x, y, z});
-	_cubeColors.push_back({ r, g, b, a });
+	glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
+	_cubeBuffer->InsertCube({ tranform, { r, g, b, a } });
 }
 
 void App::GenerateChunk()
 {
-	const int size = 10;
+	const int size = 100;
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
@@ -227,7 +276,8 @@ void App::GenerateChunk()
 				float z = k;
 				
 				float divisor = size + 1.0f;
-				_renderer->DrawCube({ x, y, z }, { x / divisor, y / divisor, z / divisor, 1.0f });
+				glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
+				_cubeBuffer->InsertCube({ tranform, { x / divisor, y / divisor, z / divisor, 1.0f } });
 			}
 		}
 	}

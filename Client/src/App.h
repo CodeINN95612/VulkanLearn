@@ -19,6 +19,7 @@ public:
 	void OnResize(uint32_t width, uint32_t height);
 	void OnScroll(double yoffset);
 	void OnMouseMove(double xPos, double yPos);
+	void OnKeyPressed(int key, int scancode, int action, int mods);
 
 private:
 	std::unique_ptr<vl::core::Renderer> _renderer = nullptr;
@@ -28,12 +29,12 @@ private:
 	uint32_t _height = 800;
 
 	bool _doRender = true;
+	bool _showCursor = false;
 	double _fps = 0.0f;
 
 	glm::vec4 _clearColor{ 0.007f, 0.007f, 0.007f, 1.f };
 
-	std::vector<glm::vec3> _cubePositions;
-	std::vector<glm::vec4> _cubeColors;
+	vl::core::CubeBuffer* _cubeBuffer = nullptr;
 
 	Camera _camera;
 

@@ -82,6 +82,7 @@ namespace vl::core
 
 	void Renderer::OnImGuiRender(ImGuiRenderFn imguiRenderFuntion, bool showRendererWindow)
 	{
+		VL_PROFILE_FUNCTION();
 		if (_resized) {
 			RecreateSwapchain();
 		}
@@ -126,7 +127,8 @@ namespace vl::core
 			ImGui::Begin("Renderer");
 			ImGui::Text("Clear Color {%.2f, %.2f, %.2f}", _clearColor.r, _clearColor.g, _clearColor.b);
 			ImGui::Text("Buffer max size bytes %d", BUFFER_MAX_SIZE_BYTES);
-			ImGui::Text("Cubes size bytes %d", _cubesData.size() * sizeof(CubeRenderData));
+			ImGui::Text("Cubes Count %d", _cubes.Count());
+			ImGui::Text("Cubes Bytes %d", _cubes.Count() * sizeof (CubeRenderData));
 			ImGui::End();
 		}
 
@@ -146,14 +148,17 @@ namespace vl::core
 		GenerateTransformsStorageBuffer();
 		InitStorageDescriptors();
 		InitGraphicsPipeline();
+		InitComputePipeline();
 		InitImGui();
 		UploadMesh();
+
 		VL_PROFILE_END_SESSION();
     }
 
     void Renderer::DrawFrame()
     {
 		UpdateTransformsStorage();
+		ExecuteComputeShader();
 
 		Frame& currentFrame = CurrentFrame();
 		VkCommandBuffer currentCommandBuffer = currentFrame.CommandBuffer;
@@ -220,7 +225,6 @@ namespace vl::core
 	{
 		VL_PROFILE_FUNCTION();
 		_vpMatrix = vpMatrix;
-		//_cubesData.clear();
 
 		if (_firstRender)
 		{
@@ -241,19 +245,6 @@ namespace vl::core
 		_clearColor = clearColor;
 	}
 
-	void Renderer::DrawCube(glm::vec3 position, glm::vec4 color)
-	{
-		VL_PROFILE_FUNCTION();
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
-
-		CubeRenderData cubeData
-		{ 
-			.model = model,
-			.color = color 
-		};
-		_cubesData.push_back(cubeData);
-	}
-
     void Renderer::Shutdown()
     {
 		VL_PROFILE_BEGIN_SESSION("Renderer Shutdown", "shutdown.vlprof.json");
@@ -269,6 +260,8 @@ namespace vl::core
 			{
 				vmaDestroyBuffer(_allocator, _frames[i].CubesStagingBuffer.Buffer, _frames[i].CubesStagingBuffer.Allocation);
 				vmaDestroyBuffer(_allocator, _frames[i].CubesStorageBuffer.Buffer, _frames[i].CubesStorageBuffer.Allocation);
+				vmaDestroyBuffer(_allocator, _frames[i].VisibleCubesStorageBuffer.Buffer, _frames[i].VisibleCubesStorageBuffer.Allocation);
+				vmaDestroyBuffer(_allocator, _frames[i].IndirectDrawBuffer.Buffer, _frames[i].IndirectDrawBuffer.Allocation);
 			}
 
 			vkDestroyDescriptorSetLayout(_logicalDevice, _storageDescriptorSetLayout, nullptr);
@@ -277,6 +270,7 @@ namespace vl::core
 			DestroyImgui();
 		
 			vkDestroyPipeline(_logicalDevice, _graphicsPipeline, nullptr);
+			vkDestroyPipeline(_logicalDevice, _computePipeline, nullptr);
 
 			vkDestroyPipelineLayout(_logicalDevice, _pipelineLayout, nullptr);
 
@@ -456,6 +450,7 @@ namespace vl::core
 		
 		_vertexShader = Shader::Create("VertexShader", "Renderer/assets/shaders/shader.vert", ShaderType::Vertex);
 		_fragmentShader = Shader::Create("FragmentShader", "Renderer/assets/shaders/shader.frag", ShaderType::Fragment);
+		_computeShader = Shader::Create("ComputeShader", "Renderer/assets/shaders/shader.comp", ShaderType::Compute);
 
 		VkShaderModule vertexShaderModule = _vertexShader->CreateShaderModule(_logicalDevice);
 		VkShaderModule fragmentShaderModule = _fragmentShader->CreateShaderModule(_logicalDevice);
@@ -612,6 +607,32 @@ namespace vl::core
 		vkDestroyShaderModule(_logicalDevice, fragmentShaderModule, nullptr);
     }
 
+	void Renderer::InitComputePipeline()
+	{
+		VkShaderModule computeShaderModule = _computeShader->CreateShaderModule(_logicalDevice);
+
+		VkPipelineShaderStageCreateInfo computeShaderStageInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+			.module = computeShaderModule,
+			.pName = "main",
+		};
+
+		VkComputePipelineCreateInfo pipelineInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+			.stage = computeShaderStageInfo,
+			.layout = _pipelineLayout,
+			.basePipelineHandle = VK_NULL_HANDLE,
+			.basePipelineIndex = 0,
+		};
+
+		VK_CHECK(vkCreateComputePipelines(_logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_computePipeline));
+
+		vkDestroyShaderModule(_logicalDevice, computeShaderModule, nullptr);
+	}
+
 	void Renderer::InitDescriptorPool()
 	{
 		uint32_t maxStorageSetCount = 1000;
@@ -687,7 +708,8 @@ namespace vl::core
 		};
 
 		auto& io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable
+			| ImGuiConfigFlags_NoMouseCursorChange;
 
 		initialized = ImGui_ImplVulkan_Init(&initInfo);
 		if (!initialized)
@@ -817,6 +839,22 @@ namespace vl::core
 		vkDestroyDescriptorPool(_logicalDevice, _imGuiDescriptorPool, nullptr);
 	}
 
+	void Renderer::ExecuteComputeShader()
+	{
+		VL_PROFILE_FUNCTION();
+		ImmediateSubmit([this](VkCommandBuffer commandBuffer)
+		{
+			vkCmdFillBuffer(commandBuffer, _frames[_currentFrame].IndirectDrawBuffer.Buffer, 0, sizeof(VkDrawIndexedIndirectCommand), 0);
+
+			Frame& currentFrame = CurrentFrame();
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline);
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipelineLayout, 0, 1, &_frames[_currentFrame].CubesDescriptorSet, 0, nullptr);
+			
+			uint32_t instanceCount = (uint32_t)_cubes.Count();
+			vkCmdDispatch(commandBuffer, (instanceCount + 255) / 256, 1, 1);
+		});
+	}
+
 	void Renderer::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 	{
 		VL_PROFILE_FUNCTION();
@@ -877,12 +915,26 @@ namespace vl::core
 		layoutBinding.binding = 0;
 		layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		layoutBinding.descriptorCount = 1;
-		layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; 
+		layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+		VkDescriptorSetLayoutBinding layoutBinding2 = {};
+		layoutBinding2.binding = 1;
+		layoutBinding2.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		layoutBinding2.descriptorCount = 1;
+		layoutBinding2.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+		VkDescriptorSetLayoutBinding indirectBinding = {};
+		indirectBinding.binding = 2;
+		indirectBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		indirectBinding.descriptorCount = 1;
+		indirectBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		std::array<VkDescriptorSetLayoutBinding, 3> bindings = { layoutBinding, layoutBinding2, indirectBinding };
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.bindingCount = 1;
-		layoutInfo.pBindings = &layoutBinding;
+		layoutInfo.bindingCount = (uint32_t)bindings.size();
+		layoutInfo.pBindings = bindings.data();
 
 		VK_CHECK(vkCreateDescriptorSetLayout(_logicalDevice, &layoutInfo, nullptr, &_storageDescriptorSetLayout));
 	}
@@ -899,32 +951,43 @@ namespace vl::core
 
 			VK_CHECK(vkAllocateDescriptorSets(_logicalDevice, &allocInfo, &_frames[i].CubesDescriptorSet));
 
-			UpdateStorageDescriptorSet(_frames[i].CubesDescriptorSet, _frames[i].CubesStorageBuffer.Buffer);
+			std::vector<VkBuffer> bufferArray = { 
+				_frames[i].CubesStorageBuffer.Buffer, 
+				_frames[i].VisibleCubesStorageBuffer.Buffer,
+				_frames[i].IndirectDrawBuffer.Buffer,
+			};
+			UpdateStorageDescriptorSet(_frames[i].CubesDescriptorSet, bufferArray);
 		}
 	}
 
-	void Renderer::UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, VkBuffer buffer) const
+	void Renderer::UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, const std::vector<VkBuffer>& bufferArray) const
 	{
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = VK_WHOLE_SIZE;
+		std::array<VkDescriptorBufferInfo, 3> bufferInfos;
+		
+		for (size_t i = 0; i < bufferArray.size(); i++)
+		{
+			bufferInfos[i].buffer = bufferArray[i];
+			bufferInfos[i].offset = 0;
+			bufferInfos[i].range = VK_WHOLE_SIZE;
+		}
 
-		VkWriteDescriptorSet descriptorWrite = {};
-		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite.dstSet = descriptorSet;
-		descriptorWrite.dstBinding = 0;
-		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		descriptorWrite.descriptorCount = 1;
-		descriptorWrite.pBufferInfo = &bufferInfo;
+		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
+		for (int i = 0; i < bufferArray.size(); ++i) {
+			descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[i].dstSet = descriptorSet;
+			descriptorWrites[i].dstBinding = i;
+			descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[i].descriptorCount = 1;
+			descriptorWrites[i].pBufferInfo = &bufferInfos[i];
+		}
 
-		vkUpdateDescriptorSets(_logicalDevice, 1, &descriptorWrite, 0, nullptr);
+		vkUpdateDescriptorSets(_logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 	}
 
     void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
     {
 		VL_PROFILE_FUNCTION();
-        if (_cubesData.size() == 0)
+        if (_cubes.Count() == 0)
         {
             return;
         }
@@ -1003,9 +1066,8 @@ namespace vl::core
 		}
 
 		{
-			VL_PROFILE_SCOPE("vkCmdDrawIndexed");
-			size_t instanceCount = _cubesData.size();
-			vkCmdDrawIndexed(commandBuffer, 36, (uint32_t)instanceCount, 0, 0, 0);
+			VL_PROFILE_SCOPE("vkCmdDrawIndexedIndirect");
+			vkCmdDrawIndexedIndirect(commandBuffer, _frames[_currentFrame].IndirectDrawBuffer.Buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
 		}
 
         vkCmdEndRendering(commandBuffer);
@@ -1073,6 +1135,7 @@ namespace vl::core
 
 	void Renderer::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
 	{
+		VL_PROFILE_FUNCTION();
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &_immediateData.Fence));
 		VK_CHECK(vkResetCommandBuffer(_immediateData.CommandBuffer, 0));
 
@@ -1102,16 +1165,20 @@ namespace vl::core
 	void Renderer::UpdateTransformsStorage()
 	{
 		VL_PROFILE_FUNCTION();
-		if (_cubesData.size() == 0)
+		if (_cubes.Count() == 0)
 		{
 			return;
 		}
 
 		auto& frame = CurrentFrame();
 		void* data = frame.CubesStagingBuffer.Allocation->GetMappedData();
-		void* copyDataRegion = _cubesData.data();
-		size_t size = _cubesData.size() * sizeof(CubeRenderData);
-		memcpy(data, copyDataRegion, size);
+		void* copyDataRegion = _cubes.Data();
+		size_t size = _cubes.Count() * sizeof(CubeRenderData);
+
+		{
+			VL_PROFILE_SCOPE("memcpy");
+			memcpy(data, copyDataRegion, size);
+		}
 
 		VkBuffer stagingBuffer = frame.CubesStagingBuffer.Buffer;
 		VkBuffer storageBuffer = frame.CubesStorageBuffer.Buffer;
@@ -1141,6 +1208,16 @@ namespace vl::core
 				BUFFER_MAX_SIZE_BYTES,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 				VMA_MEMORY_USAGE_GPU_ONLY);
+
+			_frames[i].VisibleCubesStorageBuffer = CreateBuffer(
+				BUFFER_MAX_SIZE_BYTES,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VMA_MEMORY_USAGE_GPU_ONLY);
+
+			_frames[i].IndirectDrawBuffer = CreateBuffer(
+				sizeof(VkDrawIndexedIndirectCommand),
+				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VMA_MEMORY_USAGE_GPU_ONLY);
 		}
 	}
 
@@ -1154,7 +1231,7 @@ namespace vl::core
 			.usage = usage,
 		};
 
-		VmaAllocationCreateInfo vmaallocInfo\
+		VmaAllocationCreateInfo vmaallocInfo
 		{
 			.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
 				.usage = memoryUsage,

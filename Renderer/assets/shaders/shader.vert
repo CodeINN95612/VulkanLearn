@@ -14,17 +14,17 @@ struct CubeRenderData
 	vec4 color;
 };
 
-layout(set = 0, binding = 0) readonly buffer TransformsStorageBuffer {
+layout(set = 0, binding = 1) readonly buffer TransformsStorageBuffer {
     CubeRenderData data[];
 } transformStorageBuffer;
 
 layout (location = 0) out vec4 outColor;
 
 void main() {
-    vec4 pos = vec4(position, 1.0);
+	vec4 pos = vec4(position, 1.0);
 	mat4 model = transformStorageBuffer.data[gl_InstanceIndex].model;
 	vec4 color = transformStorageBuffer.data[gl_InstanceIndex].color;
 
-    gl_Position = PC.transform * model * pos;
+	gl_Position = PC.transform * model * pos;
 	outColor = color;
 }

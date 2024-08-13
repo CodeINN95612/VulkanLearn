@@ -4,21 +4,11 @@
 #include "Renderer/Vulkan/Vulkan.h"
 #include "Renderer/Shader.h"
 #include "Renderer/Debug/Instrumentor.h"
+#include "Renderer/CubeBuffer.h"
 
 namespace vl::core
 {
 	typedef std::function<void()> ImGuiRenderFn;
-
-	struct CubeRenderData
-	{
-		glm::mat4 model;
-		glm::vec4 color;
-	};
-
-	struct CubeBatchData
-	{
-		//TODO: Implement with ptrs 
-	};
 
 	struct Frame
 	{
@@ -31,6 +21,8 @@ namespace vl::core
 
 		vulkan::AllocatedBuffer CubesStagingBuffer;
 		vulkan::AllocatedBuffer CubesStorageBuffer;
+		vulkan::AllocatedBuffer VisibleCubesStorageBuffer;
+		vulkan::AllocatedBuffer IndirectDrawBuffer;
 		VkDescriptorSet CubesDescriptorSet;
 	};
 
@@ -42,6 +34,8 @@ namespace vl::core
 
 		static std::unique_ptr<Renderer> Create(GLFWwindow* pWindow, uint32_t width, uint32_t height);
 
+		CubeBuffer* GetCubeBuffer() { return &_cubes; }
+
 		void OnResize(uint32_t width, uint32_t height);
 		void OnImGuiRender(ImGuiRenderFn imguiRenderFuntion, bool showRendererWindow = true);
 
@@ -49,7 +43,6 @@ namespace vl::core
 		void SubmitFrame();
 
 		void SetClearColor(glm::vec4 clearColor);
-		void DrawCube(glm::vec3 position, glm::vec4 color);
 
 		void Init();
 		void Shutdown();
@@ -61,9 +54,10 @@ namespace vl::core
 		};
 
 	private:
-		const size_t CUBE_COUNT_PER_CHUNK = 16 * 16 * 16;//256;
+		const size_t CUBE_COUNT_PER_CHUNK = 16 * 16 * 16;
+		const size_t CUBE_MAX_COUNT = CUBE_COUNT_PER_CHUNK * 32 * 32;
 		const size_t CHUNK_SIZE_BYTES = CUBE_COUNT_PER_CHUNK * sizeof(CubeRenderData);
-		const size_t BUFFER_MAX_SIZE_BYTES = CUBE_COUNT_PER_CHUNK * 32 * 32 * sizeof(CubeRenderData);
+		const size_t BUFFER_MAX_SIZE_BYTES = CUBE_MAX_COUNT * sizeof(CubeRenderData);
 
 		GLFWwindow* _pWindow;
 
@@ -79,6 +73,7 @@ namespace vl::core
 		vulkan::Swapchain _swapchain = {};
 		VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
 		VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
+		VkPipeline _computePipeline = VK_NULL_HANDLE;
 
 		Frame _frames[MAX_FRAMES_IN_FLIGHT] = {};
 
@@ -101,15 +96,13 @@ namespace vl::core
 
 		std::shared_ptr<vl::core::Shader> _vertexShader = nullptr;
 		std::shared_ptr<vl::core::Shader> _fragmentShader = nullptr;
+		std::shared_ptr<vl::core::Shader> _computeShader = nullptr;
 		vulkan::AllocatedBuffer _vertexBuffer = {};
 		vulkan::AllocatedBuffer _indexBuffer = {};
 
 		glm::mat4 _vpMatrix = glm::mat4(1.0f);
 
-		//vulkan::AllocatedBuffer _transformsStagingBuffer = {};
-		//std::vector<vulkan::ChunkBufferData> _chunkBuffers{};
-		std::vector<CubeRenderData> _cubesData;
-
+		CubeBuffer _cubes = CubeBuffer(CUBE_MAX_COUNT);
 
 	private:
 		void InitVulkan();
@@ -117,17 +110,20 @@ namespace vl::core
 		void InitSwapchain();
 		void InitCommands();
 		void InitGraphicsPipeline();
+		void InitComputePipeline();
 		void InitDescriptorPool();
 		void InitImGui();
 
 		void InitStorageDescriptors();
 		void AllocateDescriptorSets(uint32_t count);
-		void UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, VkBuffer buffer) const;
+		void UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, const std::vector<VkBuffer>& bufferArray) const;
 
 		void CreateSwapchain();
 		void RecreateSwapchain();
 		void DestroySwapchain();
 		void DestroyImgui();
+
+		void ExecuteComputeShader();
 
 		void DrawFrame();
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
