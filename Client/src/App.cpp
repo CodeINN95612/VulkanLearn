@@ -1,7 +1,15 @@
 #include "App.h"
 #include <imgui.h>
 
-App::App() : _camera(_width, _height)
+size_t positionTo3DIndex(int x, int y, int z, int size)
+{
+	return x * size * size + y * size + z;
+}
+
+App::App() : 
+	_camera(_width, _height),
+	_camera2(_width, _height),
+	_activeCamera(&_camera)
 {
 }
 
@@ -109,8 +117,14 @@ void App::Loop()
 
 			_renderer->SetClearColor(_clearColor);
 
-			_renderer->StartFrame(_camera.GetViewProjectionMatrix());
-			_renderer->SubmitFrame();
+			_renderer->StartFrame(_activeCamera->GetViewProjectionMatrix());
+			_renderer->SubmitFrame({
+					.view = _camera.GetViewMatrix(),
+					.proj = _camera.GetProjectionMatrix(),
+					.viewProj = _camera.GetViewProjectionMatrix(),
+					.cameraPos = glm::vec4(_camera.GetPosition(), 1.0f),
+					.renderDistance = 100.0f,
+				});
 		}
 		else
 		{
@@ -145,37 +159,50 @@ static float secondTimer = 0;
 void App::OnUpdate(float dt)
 {
 	VL_PROFILE_FUNCTION();
-	_camera.OnUpdate(_pWindow, dt);
+
+	_activeCamera->OnUpdate(_pWindow, dt);
 
 	return;
-	secondTimer += dt;
+	static const int size = 10;
 	static int x = 0;
 	static int y = 0;
+	static int z = 0;
+	static bool filled = false;
 
-	//if (secondTimer > 0.2f)
-	/*{
-		const int size = 100;
-		secondTimer = 0;
+	secondTimer += dt;
+	if (!filled && secondTimer > 0.1f)
+	{
+		glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
+		float div = float(size);
+		glm::vec4 color = { (x+1) / div, (y+1) / div, (z+1) / div, 1.0f };
+		size_t index = positionTo3DIndex(x, y, z, size);
+		_cubeBuffer->UpdateCube(index, { tranform, color });
 
-		if (y > size)
+		if (x < size - 1)
 		{
-			return;
+			x++;
 		}
-
-		for (int z = 0; z < size; z++)
-		{
-			glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
-			_cubes.push_back({ tranform, { x / float(size), y / float(size), z / float(size), 1.0f } });
-		}
-
-		x++;
-
-		if (x > size)
+		else if (y < size - 1)
 		{
 			x = 0;
 			y++;
 		}
-	}*/
+		else if (z < size - 1)
+		{
+			x = 0;
+			y = 0;
+			z++;
+		}
+		else
+		{
+			x = 0;
+			y = 0;
+			z = 0;
+			filled = true;
+		}
+
+		secondTimer = 0;
+	}
 }
 
 void App::OnResize(uint32_t width, uint32_t height)
@@ -185,11 +212,14 @@ void App::OnResize(uint32_t width, uint32_t height)
 
 	_doRender = width != 0 && height != 0;
 	_renderer->OnResize(width, height);
+
+	_camera.OnResize(width, height);
+	_camera2.OnResize(width, height);
 }
 
 void App::OnScroll(double yoffset)
 {
-	_camera.OnScroll((float)yoffset);
+	_activeCamera->OnScroll((float)yoffset);
 }
 
 void App::OnMouseMove(double xPos, double yPos)
@@ -200,7 +230,7 @@ void App::OnMouseMove(double xPos, double yPos)
 	double xoffset = xPos - lastX;
 	double yoffset = lastY - yPos;
 
-	_camera.OnMouseMove((float)xoffset, (float)yoffset);
+	_activeCamera->OnMouseMove((float)xoffset, (float)yoffset);
 
 	lastX = xPos;
 	lastY = yPos;
@@ -219,6 +249,16 @@ void App::OnKeyPressed(int key, int scancode, int action, int mods)
 		_showCursor = !_showCursor;
 		glfwSetInputMode(_pWindow, GLFW_CURSOR, _showCursor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
 	}
+
+	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
+	{
+		_activeCamera = &_camera;
+	}
+
+	if (key == GLFW_KEY_2 && action == GLFW_PRESS)
+	{
+		_activeCamera = &_camera2;
+	}
 }
 
 void App::OnImguiRender()
@@ -232,21 +272,25 @@ void App::OnImguiRender()
 
 		ImGui::ColorEdit3("Clear Color", &_clearColor.x);
 
-		if (ImGui::Button("Insert Cube"))
-		{
-			AddCube();
-		}
-
 		ImGui::Separator();
 		ImGui::Text("Camera");
-		float sensitivity = _camera.GetSensitivity();
+		float sensitivity = _activeCamera->GetSensitivity();
 		ImGui::SliderFloat("Sensitivity",  &sensitivity, 0.1f, 10.0f);
-		_camera.SetSensitivity(sensitivity);
+		_activeCamera->SetSensitivity(sensitivity);
+
+		if (_activeCamera == &_camera)
+		{
+			ImGui::Text("Selected Camera 1");
+		}
+		else
+		{
+			ImGui::Text("Selected Camera 2");
+		}
 	}
 	ImGui::End();
 }
 
-void App::AddCube()
+void App::AddRandomCube(size_t index)
 {
 	//random grid positon between -5 and 5
 	float x = static_cast<float>(rand() % 10) - 5.0f;
@@ -258,8 +302,8 @@ void App::AddCube()
 	float b = static_cast<float>(rand() % 255) / 255.0f;
 	float a = static_cast<float>(rand() % 255) / 255.0f;
 
-	glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
-	_cubeBuffer->InsertCube({ tranform, { r, g, b, a } });
+	glm::mat4 transform = glm::translate(glm::mat4(1.0f), { x, y, z });
+	_cubeBuffer->UpdateCube(index, { transform, {r, g, b, a} });
 }
 
 void App::GenerateChunk()
@@ -271,13 +315,13 @@ void App::GenerateChunk()
 		{
 			for (int k = 0; k < size; k++)
 			{
-				float x = i;
-				float y = j;
-				float z = k;
+				float x = float(i);
+				float y = float(j);
+				float z = float(k);
 				
 				float divisor = size + 1.0f;
 				glm::mat4 tranform = glm::translate(glm::mat4(1.0f), { x, y, z });
-				_cubeBuffer->InsertCube({ tranform, { x / divisor, y / divisor, z / divisor, 1.0f } });
+				_cubeBuffer->UpdateCube(i * size * size + j * size + k, { tranform, { x / divisor, y / divisor, z / divisor, 1.0f } });
 			}
 		}
 	}

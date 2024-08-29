@@ -5,7 +5,7 @@ layout (location = 1) in vec3 vColor;
 
 layout( push_constant ) uniform constants
 {	
-	mat4 transform;
+	mat4 viewProjection;
 } PC;
 
 struct CubeRenderData
@@ -25,6 +25,6 @@ void main() {
 	mat4 model = transformStorageBuffer.data[gl_InstanceIndex].model;
 	vec4 color = transformStorageBuffer.data[gl_InstanceIndex].color;
 
-	gl_Position = PC.transform * model * pos;
+	gl_Position = PC.viewProjection * model * pos;
 	outColor = color;
 }

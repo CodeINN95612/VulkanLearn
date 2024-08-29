@@ -37,10 +37,12 @@ private:
 	vl::core::CubeBuffer* _cubeBuffer = nullptr;
 
 	Camera _camera;
+	Camera _camera2;
+	Camera* _activeCamera;
 
 private:
 	void OnImguiRender();
 
-	void AddCube();
+	void AddRandomCube(size_t index);
 	void GenerateChunk();
 };

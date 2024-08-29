@@ -8,6 +8,7 @@ namespace vl::core
 	{
 		glm::mat4 Model;
 		glm::vec4 Color;
+
 	};
 
 	class CubeBuffer
@@ -16,17 +17,18 @@ namespace vl::core
 		CubeBuffer(size_t reserve);
 		virtual ~CubeBuffer();
 
-		void InsertCubes(const std::vector<CubeRenderData>& insertedCubes);
-		void InsertCube(const CubeRenderData& insertedCubes);
-
-		size_t Count() const { return count; }
+		void UpdateCube(size_t index, const CubeRenderData& cube);
 
 		CubeRenderData* Data() { return _cubes; }
+		const CubeRenderData* Data() const { return _cubes; }
+
+		const std::vector<size_t>& UpdatedIndices() const { return updatedIndices; }
+		inline void ClearUpdatedIndices() { updatedIndices.clear(); }
 
 	private:
+
 		size_t maximumCubes;
 		CubeRenderData* _cubes;
-		void* _end;
-		size_t count;
+		std::vector<size_t> updatedIndices;
 	};
 }

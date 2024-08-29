@@ -23,11 +23,62 @@ layout(set = 0, binding = 2) buffer IndirectDrawBuffer {
     uint firstInstance;
 } indirectDrawBuffer;
 
-bool IsVisible(CubeRenderData cubeData){
-	//return true;
-	vec3 position = vec3(cubeData.model[3][0], cubeData.model[3][1], cubeData.model[3][2]);
-    
-    return (int(position.x) % 2) == 0 && (int(position.y) % 2) == 0 && (int(position.z) % 2) == 0;
+layout(set = 0, binding = 3) buffer CameraUniformBuffer {
+	mat4 view;
+	mat4 proj;
+	mat4 viewProj;
+    vec4 cameraPosition;
+	float renderDistance;
+} cameraUniformBuffer;
+
+// Frustum planes
+const int NUM_PLANES = 6;
+vec4 frustumPlanes[NUM_PLANES];
+
+void calculateFrustumPlanes() {
+    mat4 vp = cameraUniformBuffer.viewProj;
+    frustumPlanes[0] = vec4(vp[3] + vp[0]); // Left plane
+    frustumPlanes[1] = vec4(vp[3] - vp[0]); // Right plane
+    frustumPlanes[2] = vec4(vp[3] + vp[1]); // Bottom plane
+    frustumPlanes[3] = vec4(vp[3] - vp[1]); // Top plane
+    frustumPlanes[4] = vec4(vp[3] + vp[2]); // Near plane
+    frustumPlanes[5] = vec4(vp[3] - vp[2]); // Far plane
+
+    // Normalize the planes
+    for (int i = 0; i < NUM_PLANES; i++) {
+        frustumPlanes[i] /= length(frustumPlanes[i].xyz);
+    }
+}
+
+bool isPointInFrustum(vec3 point) {
+    for (int i = 0; i < NUM_PLANES; i++) {
+        if (dot(vec4(point, 1.0), frustumPlanes[i]) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsVisible(CubeRenderData cubeData) {
+    if (cubeData.color.a == 0.0) {
+        return false;
+    }
+
+    // Get the cube's position from its model matrix
+    vec3 cubePosition = vec3(cubeData.model[3]);
+
+    // Check if the cube's center is within the frustum
+    if (!isPointInFrustum(cubePosition)) {
+        return false;
+    }
+
+    // Check if the cube is within render distance
+    float distanceToCamera = distance(cubePosition, cameraUniformBuffer.cameraPosition.xyz);
+    if (distanceToCamera > cameraUniformBuffer.renderDistance) {
+        return false;
+    }
+
+    return true;
 }
 
 void main() {

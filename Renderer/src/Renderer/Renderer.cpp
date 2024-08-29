@@ -127,8 +127,9 @@ namespace vl::core
 			ImGui::Begin("Renderer");
 			ImGui::Text("Clear Color {%.2f, %.2f, %.2f}", _clearColor.r, _clearColor.g, _clearColor.b);
 			ImGui::Text("Buffer max size bytes %d", BUFFER_MAX_SIZE_BYTES);
-			ImGui::Text("Cubes Count %d", _cubes.Count());
-			ImGui::Text("Cubes Bytes %d", _cubes.Count() * sizeof (CubeRenderData));
+			ImGui::Text("Chunk size bytes %d", CHUNK_SIZE_BYTES);
+			ImGui::Text("Cube max count %d", CUBE_MAX_COUNT);
+			ImGui::Text("Cube count per chunk %d", CUBE_COUNT_PER_CHUNK);
 			ImGui::End();
 		}
 
@@ -155,9 +156,10 @@ namespace vl::core
 		VL_PROFILE_END_SESSION();
     }
 
-    void Renderer::DrawFrame()
+    void Renderer::DrawFrame(const CameraUniformData& cameraUniformData)
     {
 		UpdateTransformsStorage();
+		UpdateCameraUniformBuffer(cameraUniformData);
 		ExecuteComputeShader();
 
 		Frame& currentFrame = CurrentFrame();
@@ -217,8 +219,8 @@ namespace vl::core
 			}
 
 			_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+			_cubes.ClearUpdatedIndices();
 		}
-
     }
 
 	void Renderer::StartFrame(const glm::mat4& vpMatrix)
@@ -228,16 +230,19 @@ namespace vl::core
 
 		if (_firstRender)
 		{
-			_firstRender = false;
-
 			AllocateDescriptorSets(1);
 		}
 	}
 
-	void Renderer::SubmitFrame()
+	void Renderer::SubmitFrame(const CameraUniformData& cameraUniformData)
 	{
 		VL_PROFILE_FUNCTION();
-		DrawFrame();
+		DrawFrame(cameraUniformData);
+
+		if (_firstRender)
+		{
+			_firstRender = false;
+		}
 	}
 
 	void Renderer::SetClearColor(glm::vec4 clearColor)
@@ -262,6 +267,7 @@ namespace vl::core
 				vmaDestroyBuffer(_allocator, _frames[i].CubesStorageBuffer.Buffer, _frames[i].CubesStorageBuffer.Allocation);
 				vmaDestroyBuffer(_allocator, _frames[i].VisibleCubesStorageBuffer.Buffer, _frames[i].VisibleCubesStorageBuffer.Allocation);
 				vmaDestroyBuffer(_allocator, _frames[i].IndirectDrawBuffer.Buffer, _frames[i].IndirectDrawBuffer.Allocation);
+				vmaDestroyBuffer(_allocator, _frames[i].CameraUniformBuffer.Buffer, _frames[i].CameraUniformBuffer.Allocation);
 			}
 
 			vkDestroyDescriptorSetLayout(_logicalDevice, _storageDescriptorSetLayout, nullptr);
@@ -850,7 +856,7 @@ namespace vl::core
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline);
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipelineLayout, 0, 1, &_frames[_currentFrame].CubesDescriptorSet, 0, nullptr);
 			
-			uint32_t instanceCount = (uint32_t)_cubes.Count();
+			uint32_t instanceCount = (uint32_t)CUBE_MAX_COUNT;
 			vkCmdDispatch(commandBuffer, (instanceCount + 255) / 256, 1, 1);
 		});
 	}
@@ -929,7 +935,18 @@ namespace vl::core
 		indirectBinding.descriptorCount = 1;
 		indirectBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-		std::array<VkDescriptorSetLayoutBinding, 3> bindings = { layoutBinding, layoutBinding2, indirectBinding };
+		VkDescriptorSetLayoutBinding cameraUniformBuffer = {};
+		cameraUniformBuffer.binding = 3;
+		cameraUniformBuffer.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		cameraUniformBuffer.descriptorCount = 1;
+		cameraUniformBuffer.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+		std::vector<VkDescriptorSetLayoutBinding> bindings = { 
+			layoutBinding, 
+			layoutBinding2, 
+			indirectBinding,
+			cameraUniformBuffer
+		};
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -955,6 +972,8 @@ namespace vl::core
 				_frames[i].CubesStorageBuffer.Buffer, 
 				_frames[i].VisibleCubesStorageBuffer.Buffer,
 				_frames[i].IndirectDrawBuffer.Buffer,
+				_frames[i].CameraUniformBuffer.Buffer,
+
 			};
 			UpdateStorageDescriptorSet(_frames[i].CubesDescriptorSet, bufferArray);
 		}
@@ -962,7 +981,7 @@ namespace vl::core
 
 	void Renderer::UpdateStorageDescriptorSet(VkDescriptorSet descriptorSet, const std::vector<VkBuffer>& bufferArray) const
 	{
-		std::array<VkDescriptorBufferInfo, 3> bufferInfos;
+		std::vector<VkDescriptorBufferInfo> bufferInfos(bufferArray.size());
 		
 		for (size_t i = 0; i < bufferArray.size(); i++)
 		{
@@ -971,7 +990,7 @@ namespace vl::core
 			bufferInfos[i].range = VK_WHOLE_SIZE;
 		}
 
-		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
+		std::vector<VkWriteDescriptorSet> descriptorWrites(bufferArray.size());
 		for (int i = 0; i < bufferArray.size(); ++i) {
 			descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[i].dstSet = descriptorSet;
@@ -987,10 +1006,6 @@ namespace vl::core
     void Renderer::DrawGeometry(VkCommandBuffer commandBuffer)
     {
 		VL_PROFILE_FUNCTION();
-        if (_cubes.Count() == 0)
-        {
-            return;
-        }
 
         VkRenderingAttachmentInfo colorAttachment = vulkan::colorAttachmentInfo(
             _drawData.Image.View,
@@ -1133,7 +1148,7 @@ namespace vl::core
 		vmaDestroyBuffer(_allocator, staging.Buffer, staging.Allocation);
 	}
 
-	void Renderer::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+	void Renderer::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) const
 	{
 		VL_PROFILE_FUNCTION();
 		VK_CHECK(vkResetFences(_logicalDevice, 1, &_immediateData.Fence));
@@ -1162,36 +1177,92 @@ namespace vl::core
 		VK_CHECK(vkWaitForFences(_logicalDevice, 1, &_immediateData.Fence, true, UINT64_MAX));
 	}
 
-	void Renderer::UpdateTransformsStorage()
+	void Renderer::UpdateTransformsStorage() const
 	{
 		VL_PROFILE_FUNCTION();
-		if (_cubes.Count() == 0)
+		auto& updated = _cubes.UpdatedIndices();
+		size_t size = updated.size() * sizeof(CubeRenderData);
+		if (size == 0)
 		{
 			return;
 		}
 
-		auto& frame = CurrentFrame();
-		void* data = frame.CubesStagingBuffer.Allocation->GetMappedData();
-		void* copyDataRegion = _cubes.Data();
-		size_t size = _cubes.Count() * sizeof(CubeRenderData);
-
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			VL_PROFILE_SCOPE("memcpy");
-			memcpy(data, copyDataRegion, size);
-		}
+			VkBuffer stagingBuffer = _frames[i].CubesStagingBuffer.Buffer;
+			VkBuffer storageBuffer = _frames[i].CubesStorageBuffer.Buffer;
 
-		VkBuffer stagingBuffer = frame.CubesStagingBuffer.Buffer;
-		VkBuffer storageBuffer = frame.CubesStorageBuffer.Buffer;
+			const CubeRenderData* cubeData = _cubes.Data();
+			CubeRenderData* mappedData = (CubeRenderData*)_frames[i].CubesStagingBuffer.Allocation->GetMappedData();
 
-		ImmediateSubmit([&](VkCommandBuffer cmd)
+			std::vector<VkBufferCopy> copies(updated.size());
+			for (size_t i = 0; i < updated.size(); i++)
 			{
-				VkBufferCopy vertexCopy{ 0 };
-				vertexCopy.dstOffset = 0;
-				vertexCopy.srcOffset = 0;
-				vertexCopy.size = size;
-				vkCmdCopyBuffer(cmd, stagingBuffer, storageBuffer, 1, &vertexCopy);
+				size_t index = updated[i];
+				mappedData[index] = cubeData[index];
+
+				VkBufferCopy copy
+				{
+					.srcOffset = index * sizeof(CubeRenderData),
+					.dstOffset = index * sizeof(CubeRenderData),
+					.size = sizeof(CubeRenderData),
+				};
+				copies[i] = copy;
 			}
-		);
+
+
+			if (_firstRender)
+			{
+				ImmediateSubmit([&](VkCommandBuffer cmd){
+						VkBufferCopy copy
+						{
+							.srcOffset = 0,
+							.dstOffset = 0,
+							.size = BUFFER_MAX_SIZE_BYTES,
+						};
+
+						vkCmdCopyBuffer(cmd, stagingBuffer, storageBuffer, 1, &copy);
+					}
+				);
+			}
+			else
+			{
+				ImmediateSubmit([&](VkCommandBuffer cmd){
+						vkCmdCopyBuffer(cmd, stagingBuffer, storageBuffer, (uint32_t)copies.size(), copies.data());
+					}
+				);
+			}
+
+			
+		}
+	}
+
+	void Renderer::UpdateCameraUniformBuffer(const CameraUniformData& cameraUniformData) const
+	{
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			CameraUniformData* cameraStagingBufferData = (CameraUniformData*)_frames[i].CubesStagingBuffer.Allocation->GetMappedData();
+			cameraStagingBufferData->view = cameraUniformData.view;
+			cameraStagingBufferData->proj = cameraUniformData.proj;
+			cameraStagingBufferData->viewProj = cameraUniformData.viewProj;
+			cameraStagingBufferData->cameraPos = cameraUniformData.cameraPos;
+			cameraStagingBufferData->renderDistance = cameraUniformData.renderDistance;
+
+			VkBuffer stagingCameraBuffer = _frames[i].CubesStagingBuffer.Buffer;
+			VkBuffer cameraUniformBuffer = _frames[i].CameraUniformBuffer.Buffer;
+
+			ImmediateSubmit([&](VkCommandBuffer cmd) 
+				{
+					VkBufferCopy copy
+					{
+						.srcOffset = 0,
+						.dstOffset = 0,
+						.size = sizeof(CameraUniformData),
+					};
+					vkCmdCopyBuffer(cmd, stagingCameraBuffer, cameraUniformBuffer, 1, &copy);
+				}
+			);
+		}
 	}
 
 	void Renderer::GenerateTransformsStorageBuffer()
@@ -1217,6 +1288,11 @@ namespace vl::core
 			_frames[i].IndirectDrawBuffer = CreateBuffer(
 				sizeof(VkDrawIndexedIndirectCommand),
 				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VMA_MEMORY_USAGE_GPU_ONLY);
+
+			_frames[i].CameraUniformBuffer = CreateBuffer(
+				sizeof(CameraUniformData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 				VMA_MEMORY_USAGE_GPU_ONLY);
 		}
 	}

@@ -10,6 +10,15 @@ namespace vl::core
 {
 	typedef std::function<void()> ImGuiRenderFn;
 
+	struct CameraUniformData
+	{
+		glm::mat4 view;
+		glm::mat4 proj;
+		glm::mat4 viewProj;
+		glm::vec4 cameraPos;
+		float renderDistance;
+	};
+
 	struct Frame
 	{
 		VkCommandPool CommandPool;
@@ -23,6 +32,7 @@ namespace vl::core
 		vulkan::AllocatedBuffer CubesStorageBuffer;
 		vulkan::AllocatedBuffer VisibleCubesStorageBuffer;
 		vulkan::AllocatedBuffer IndirectDrawBuffer;
+		vulkan::AllocatedBuffer CameraUniformBuffer;
 		VkDescriptorSet CubesDescriptorSet;
 	};
 
@@ -40,7 +50,7 @@ namespace vl::core
 		void OnImGuiRender(ImGuiRenderFn imguiRenderFuntion, bool showRendererWindow = true);
 
 		void StartFrame(const glm::mat4& vpMatrix);
-		void SubmitFrame();
+		void SubmitFrame(const CameraUniformData& cameraUniformData);
 
 		void SetClearColor(glm::vec4 clearColor);
 
@@ -125,7 +135,7 @@ namespace vl::core
 
 		void ExecuteComputeShader();
 
-		void DrawFrame();
+		void DrawFrame(const CameraUniformData& cameraUniformData);
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
 		void DrawBackground(VkCommandBuffer commandBuffer);
@@ -134,11 +144,13 @@ namespace vl::core
 
 		void UploadMesh();
 		void GenerateTransformsStorageBuffer();
-		void UpdateTransformsStorage();
+		void UpdateTransformsStorage() const;
+		void UpdateCameraUniformBuffer(const CameraUniformData& cameraUniformData) const;
 
 		vulkan::AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
-		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+		void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) const;
 
 		inline Frame& CurrentFrame() { return _frames[_currentFrame]; }
+		inline const Frame& CurrentFrame() const { return _frames[_currentFrame]; }
 	};
 }
